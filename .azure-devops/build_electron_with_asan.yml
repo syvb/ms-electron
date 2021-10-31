@@ -1,0 +1,34 @@
+# https://domoreexp.visualstudio.com/Teamspace/_build?definitionId=4283
+
+trigger: none
+
+parameters:
+- name: flavour
+  displayName: Build flavour
+  type: string
+  values: ['electron', 'media', 'teams', 'vscode']
+  default: teams
+- name: platform
+  displayName: Platform
+  type: string
+  values: ['linux', 'mac', 'windows']
+  default: windows
+
+jobs:
+- template: templates/job/build_electron.yml
+  parameters:
+    arch: x64
+    asan: true
+    buildType: testing
+    flavour: ${{ parameters.flavour }}
+    platform: ${{ parameters.platform }}
+
+- template: templates/job/run_javascript_tests.yml
+  parameters:
+    arch: x64
+    ignoreTestFailures: true
+    ${{ if eq(parameters.platform, 'mac') }}:
+      osVersion: Catalina
+    ${{ if eq(parameters.platform, 'windows') }}:
+      osVersion: Windows10
+    platform: ${{ parameters.platform }}

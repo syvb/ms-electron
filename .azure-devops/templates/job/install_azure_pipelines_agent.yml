@@ -1,0 +1,19 @@
+parameters:
+  name: name  # Target virtual machine name.
+  type: string
+
+jobs:
+- job: install_azure_pipelines_agent
+  displayName: Install an Azure Pipelines agent
+  pool:
+    # Azure CLI is a hard dependency for this job.
+    vmImage: ubuntu-18.04
+  variables:
+  # It's needed to get a token to connect to the server.
+  - group: Electron
+  steps:
+  - template: ../action/checkout_self.yml
+
+  - template: ../action/install_azure_pipelines_agent.yml
+    parameters:
+      name: ${{ parameters.name }}

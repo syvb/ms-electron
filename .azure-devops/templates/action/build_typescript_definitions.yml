@@ -1,0 +1,20 @@
+parameters:
+  srcDirectory: ''  # An absolute path.
+
+steps:
+- script: npm run create-typescript-definitions
+  displayName: Create Electron TypeScript definitions
+  workingDirectory: ${{ parameters.srcDirectory }}/electron
+  # TODO(alkuzmin): It writes something to stderr even if everything is ok.
+  # Fix it upstream.
+  failOnStderr: false
+
+- template: copy_artifact.yml
+  parameters:
+    file: electron-api.json
+    sourceFolder: ${{ parameters.srcDirectory }}/electron
+
+- template: copy_artifact.yml
+  parameters:
+    file: electron.d.ts
+    sourceFolder: ${{ parameters.srcDirectory }}/electron

@@ -1,0 +1,62 @@
+<project
+    name="electron"
+    xmlns:ivy="antlib:org.apache.ivy.ant"
+    xmlns:if="ant:if" xmlns:unless="ant:unless">
+
+    <import file="${ant.home}/imports/bootstrap.xml" />
+
+    <!-- #### Properties #### -->
+
+    <!-- Specify product name. Top in the folder structure on IVY. -->
+    <property name="name" value="" />
+
+    <!-- Specify product branch. Middle folder on IVY between name and version. -->
+    <!-- Examples: "local/teams-3.1, vscode-4.0" -->
+    <property name="branch" value="" />
+
+    <!-- Specify product version. Leaf, last folder in which artifacts are stored. -->
+    <!-- Examples: "185479", "2526841" -->
+    <property name="version" value="" />
+
+    <property name="ivy.file.path" location="" />
+    <property name="artifacts.dir" location="${basedir}" />
+    <property name="build.ws"      location="${basedir}" />
+
+    <!-- #### Targets #### -->
+
+    <target name="info">
+      <echo>Base Dir</echo>
+      <echo>${basedir}</echo>
+
+      <echo>Artifacts path</echo>
+      <echo>${artifacts.dir}</echo>
+
+      <echo>IVY pattern for module</echo>
+      <echo>${ivy.file.path}</echo>
+
+      <echo>IVY publish URL</echo>
+      <echo>https://skype.pkgs.visualstudio.com/_packaging/tps/ivy/v1/tps/${name}/${branch}/${version}/</echo>
+    </target>
+
+    <target name="publish-artifacts">
+        <if>
+            <available file="${ivy.file.path}" />
+            <then>
+                <ivy:resolve type="nonexistent" file="${ivy.file.path}" />
+                <ivy:publish
+                    overwrite="true"
+                    update="false"
+                    resolver="vsts-skype-tps"
+                    pubrevision="${version}"
+                    forcedeliver="true"
+                    srcivypattern="${ivy.file.path}"
+                    artifactspattern="${artifacts.dir}/[artifact].[ext]"
+                    status="release" />
+            </then>
+            <else>
+                <echo message="No IVY module XML on path: ${ivy.file.path}. Skipping publishing." />
+            </else>
+        </if>
+    </target>
+
+</project>

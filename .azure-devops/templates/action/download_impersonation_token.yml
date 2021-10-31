@@ -1,0 +1,24 @@
+# Download build artifacts to specified build number to specified folder
+# One impersonation token should be enough to
+# publish everything to IVY.
+# publishVersion <=> build id
+
+parameters:
+  destination: ''
+  password: ''
+  publishName: ''
+  publishVersion: ''
+  username: ''
+  workDirectory: ''
+
+
+steps:
+- script: >
+    node $(Build.SourcesDirectory)/scripts/download_impersonation_token.js
+    --publish-build-name=${{ parameters.publishName }}
+    --publish-version=${{ parameters.publishVersion }}
+    --user=${{ parameters.username }}
+    --password=${{ parameters.password }}
+    --destination=${{ parameters.destination }}
+  workingDirectory: ${{ parameters.workDirectory }}
+  displayName: Impersonation Token for ${{ parameters.publishName }} ${{ parameters.publishVersion }}

@@ -1,0 +1,10 @@
+# Skip the "Component Detection (auto-injected by policy)" task.
+#
+# > To opt out of this build task, you can create
+# > a build variable "skipComponentGovernanceDetection" and set it to "true".
+
+steps:
+- template: set_variable.yml
+  parameters:
+    name: skipComponentGovernanceDetection
+    value: true

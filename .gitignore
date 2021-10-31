@@ -1,0 +1,6 @@
+# Files
+*.pyc
+npm-debug.log
+
+# Folders
+node_modules

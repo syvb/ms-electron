@@ -1,0 +1,5 @@
+variables:
+  # This is not absolutely needed but there are two reasons to have it:
+  # 1. Copying of the msdia*.dll can fail if the version is not set explicitly.
+  # 2. To resolve ambiguity if there are multiple Visual Studio versions available.
+  GYP_MSVS_VERSION: 2017

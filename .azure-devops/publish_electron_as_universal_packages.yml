@@ -1,0 +1,15 @@
+# https://domoreexp.visualstudio.com/Teamspace/_build?definitionId=4229
+#
+# Publish an already built Electron to a Universal Packages feed.
+
+trigger: none
+
+parameters:
+- name: buildId
+  displayName: Electron build ID
+  type: number
+
+jobs:
+- template: templates/job/publish_electron_to_upack.yml
+  parameters:
+    buildId: ${{ parameters.buildId }}

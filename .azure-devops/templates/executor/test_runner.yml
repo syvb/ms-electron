@@ -1,0 +1,93 @@
+# Environment to build native Node.js modules and run Electron.
+
+parameters:
+  continueOnError: false
+  dependsOn: []
+  displayName: ''
+  jobId: ''
+  osVersion: ''
+  platform: ''  # {'linux', 'mac', 'mas', 'windows'}
+  steps: []
+  timeoutInMinutes: 0  # Stands for maximum allowed by Azure Pipelines.
+  variables: {}
+  _privateAgents:
+  - Windows7
+  - Windows8_1
+  - Windows10
+  - Windows10_ARM64
+
+jobs:
+- job: ${{ parameters.jobId }}
+  continueOnError: ${{ parameters.continueOnError }}
+  dependsOn: ${{ parameters.dependsOn }}
+  displayName: ${{ parameters.displayName }}
+  pool:
+    # Linux
+    ${{ if eq(parameters.platform, 'linux') }}:
+      vmImage: ubuntu-18.04
+    # macOS
+    ${{ if in(parameters.platform, 'mac', 'mas') }}:
+      ${{ if eq(parameters.osVersion, '') }}:
+        vmImage: macOS-latest
+      ${{ if eq(parameters.osVersion, 'Catalina') }}:
+        vmImage: macOS-10.15
+      ${{ if eq(parameters.osVersion, 'Mojave') }}:
+        vmImage: macOS-10.14
+    # Windows
+    ${{ if eq(parameters.platform, 'windows') }}:
+      ${{ if eq(parameters.osVersion, '') }}:
+        vmImage: windows-latest  # Some version of Windows Server.
+      ${{ if eq(parameters.osVersion, 'Windows7') }}:
+        name: Electron Tests
+        demands: Agent.OSVersion -equals 6.1.7601  # Windows 7 SP 1
+      ${{ if eq(parameters.osVersion, 'Windows8_1') }}:
+        name: Electron Tests
+        demands: Agent.OSVersion -equals 6.3.9600  # Windows 8.1
+      ${{ if eq(parameters.osVersion, 'Windows10') }}:
+        name: Electron Windows
+        demands:
+        - Agent.OSVersion -equals 10.0.18363  # Windows 10 1909
+      ${{ if eq(parameters.osVersion, 'Windows10_ARM64') }}:
+        name: Electron Tests
+        demands:
+        - Agent.OS -equals Windows_NT
+        - PROCESSOR_ARCHITEW6432 -equals ARM64
+      ${{ if eq(parameters.osVersion, 'WindowsServer2016') }}:
+        vmImage: vs2017-win2016
+      ${{ if eq(parameters.osVersion, 'WindowsServer2019') }}:
+        vmImage: windows-2019
+  ${{ if eq(parameters.platform, 'linux') }}:
+    container:
+      endpoint: Electron-Build-Docker
+      image: 'electronatms.azurecr.io/linux-builder:d93c7015f1885a57f54c97827a6861641682ff66'
+      # Run as root.
+      options: '--user 0:0 --privileged --shm-size="1g"'
+  timeoutInMinutes: ${{ parameters.timeoutInMinutes }}
+  variables: ${{ parameters.variables }}
+  steps:
+  # Linux builds use a Docker container, its environment is already set up properly.
+  # Also if the "UsePythonVersion" task is used to choose a different Python version
+  # Electron's JS tests will fail with the "ImportError: No module named dbusmock" error.
+  - ${{ if eq(parameters.platform, 'linux') }}:
+    - template: ../action/clean_up_build_directories.yml
+      parameters:
+        platform: ${{ parameters.platform }}
+    - template: ../action/configure_git.yml
+      parameters:
+        platform: ${{ parameters.platform }}
+    - template: ../action/skip_component_governance_detection.yml
+
+  - ${{ if in(parameters.platform, 'mac', 'mas', 'windows') }}:
+    - template: ../action/setup_agent.yml
+      parameters:
+        platform: ${{ parameters.platform }}
+        ${{ if containsValue(parameters._privateAgents, parameters.osVersion) }}:
+          usePython: false
+        useXcode: false  # It's not needed for tests.
+
+  - template: ../action/set_variable.yml
+    parameters:
+      name: Electron.Executor.GitCacheDirectory
+      value: None  # No cache available.
+
+  - ${{ parameters.steps }}

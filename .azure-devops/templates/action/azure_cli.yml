@@ -1,0 +1,26 @@
+# Run an Azure CLI script.
+# Make sure that Azure CLI is installed on a host machine.
+
+parameters:
+- name: displayName
+  type: string
+  default: Run an Azure CLI script
+- name: failOnStandardError
+  type: boolean
+  default: true
+- name: scriptArguments
+  type: string
+  default: ''
+- name: scriptPath
+  type: string
+  default: ''
+
+steps:
+- task: AzureCLI@1
+  displayName: ${{ parameters.displayName }}
+  inputs:
+    arguments: ${{ parameters.scriptArguments }}
+    azureSubscription: Electron
+    failOnStandardError: ${{ parameters.failOnStandardError }}
+    scriptLocation: scriptPath
+    scriptPath: ${{ parameters.scriptPath }}

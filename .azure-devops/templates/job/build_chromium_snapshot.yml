@@ -1,0 +1,96 @@
+parameters:
+- name: platform
+  type: string
+  values: ['linux', 'mac', 'windows']
+- name: publish
+  type: boolean
+  default: false
+- name: replace
+  type: boolean
+  default: false
+- name: save
+  type: boolean
+  default: true
+- name: _workingDirectory
+  type: string
+  default: $(Build.BinariesDirectory)
+
+jobs:
+- template: ../executor/builder.yml
+  parameters:
+    jobId: build_chromium_snapshot_${{ parameters.platform }}
+    displayName: Chromium snapshot on ${{ parameters.platform }}
+    platform: ${{ parameters.platform }}
+    timeoutInMinutes: 240  # Default is 60, it's not enough for Linux and Windows.
+    windows10SDK: ''  # Doesn't matter.
+    steps:
+    - template: ../action/checkout_electron_without_chromium.yml
+      parameters:
+        platform: ${{ parameters.platform }}
+        runHooks: false
+        workingDirectory: ${{ parameters._workingDirectory }}/electron
+
+    - template: ../action/capture_output.yml
+      parameters:
+        command: python scripts/chromium_version.py --from-electron-deps
+        variable: Electron.Local.ChromiumVersion
+        workingDirectory: ${{ parameters._workingDirectory }}/electron/src/microsoft
+
+    - template: ../action/configure_git_cookie_for_chromium_repo.yml
+      parameters:
+        platform: ${{ parameters.platform }}
+
+    # The checkout script has to be called from the proper checkout directory
+    # because it uses Electron sources.
+    - task: PythonScript@0
+      displayName: Checkout Chromium from the upstream
+      inputs:
+        scriptSource: filePath
+        scriptPath: ${{ parameters._workingDirectory }}/electron/src/microsoft/scripts/checkout_chromium.py
+        arguments: >
+          --git-cache $(Electron.Executor.GitCacheDirectory)
+          --output-dir ${{ parameters._workingDirectory }}/chromium
+          --revision $(Electron.Local.ChromiumVersion)
+        failOnStderr: false
+
+    # It would be better to just clean-up the checked out tree itself.
+    # But we often run into "WindowsError: [Error 5] Access is denied:"
+    # errors on Windows removing files, so creating a copy
+    # is the only option we have.
+    - task: PythonScript@0
+      displayName: Create a clean copy of the Chromium tree
+      inputs:
+        scriptSource: filePath
+        scriptPath: scripts/clean_copy_of_chromium_tree.py
+        # Gclient checkouts Chromium into the "src/" folder
+        # inside the working directory.
+        arguments: >
+          --chromium-path ${{ parameters._workingDirectory }}/chromium/src
+          --copy-path ${{ parameters._workingDirectory }}/snapshot
+        failOnStderr: true
+
+    # Publish as an artifact for debug.
+    - ${{ if eq(parameters.publish, true) }}:
+      - task: ArchiveFiles@2
+        displayName: Create a snapshot archive
+        inputs:
+          rootFolderOrFile: ${{ parameters._workingDirectory }}/snapshot
+          includeRootFolder: false
+          archiveType: tar
+          tarCompression: gz
+          archiveFile: >-
+            $(Build.ArtifactStagingDirectory)/chromium_$(Electron.Local.ChromiumVersion)_${{ parameters.platform }}.tgz
+
+      - publish: $(Build.ArtifactStagingDirectory)
+        artifact: 'chromium $(Electron.Local.ChromiumVersion) for ${{ parameters.platform }}'
+
+    - ${{ if eq(parameters.save, true) }}:
+      - task: PythonScript@0
+        displayName: Save the Chromium snapshot
+        inputs:
+          scriptSource: filePath
+          scriptPath: scripts/save_chromium_snapshot.py
+          arguments: >
+            --replace ${{ parameters.replace }}
+            --snapshot-dir ${{ parameters._workingDirectory }}/snapshot
+          failOnStderr: false  # Git warnings can be there.

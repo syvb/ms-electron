@@ -1,0 +1,92 @@
+# Publish Windows symbol files (pdb) of BuildID to symbol servers.
+# Symbol server link https://microsoft.artifacts.visualstudio.com
+
+parameters:
+  arch: x64  # {'arm64', 'x64', 'x86'}
+  buildId: ''  # An id of a build that created Electron distribution. An empty string stands for the current build.
+  _platform: windows
+  _workingDirectory: $(Build.BinariesDirectory)
+
+jobs:
+- job: publish_electron_windows_${{ parameters.arch }}_symbols_to_symbol_servers
+  displayName: Publish Electron Windows ${{ parameters.arch }} symbols to symbol servers
+  # Wait for artifacts to be ready if we're publishing the current build.
+  ${{ if eq(parameters.buildId, '') }}:
+    dependsOn: build_electron_windows_${{ parameters.arch }}
+  pool:
+    vmImage: vs2017-win2016
+  variables:
+  - group: Electron
+  - group: microsoft-artifact-service
+  - name: ArtifactServices.Symbol.AccountName
+    value: microsoft
+  - name: ArtifactServices.Symbol.PAT
+    value: $(microsoft-artifact-service-pat)
+  steps:
+  - template: ../action/setup_agent.yml
+    parameters:
+      platform: ${{ parameters._platform }}
+
+  - template: ../action/checkout_self.yml
+
+  # To publish to proper place, we need to know the version and flavour of Electron
+  # from the build. It is stored in meta data.
+  - task: DownloadPipelineArtifact@0
+    displayName: Download build ${{ parameters.buildId }} meta data
+    inputs:
+      pipelineId: ${{ parameters.buildId }}
+      artifactName: electron meta data
+      targetPath: ${{ parameters._workingDirectory }}/electron meta data
+
+  - template: ../action/set_variable_from_file.yml
+    parameters:
+      filePath: '${{ parameters._workingDirectory }}/electron meta data/version.txt'
+      name: Electron.Local.Version
+      stepName: set_version_variable
+
+  - template: ../action/set_variable_from_file.yml
+    parameters:
+      filePath: '${{ parameters._workingDirectory }}/electron meta data/flavour.txt'
+      name: Electron.Local.Flavour
+      stepName: set_flavour_variable
+
+  # Branch name the same as for Electron 3 to retain compatibility
+  - template: ../action/capture_output.yml
+    parameters:
+      # The command should not end with a new line.
+      command: >-
+        python scripts/ivy_branch_name.py
+        --flavour $(Electron.Local.Flavour)
+        --version $(Electron.Local.Version)
+      variable: Electron.Local.Branch
+
+  - template: ../action/set_variable.yml
+    parameters:
+      name: Electron.Symbols.Artifact.Name
+      value: "electron-win-${{ parameters.arch }}/\
+        $(Electron.Local.Branch)/${{ parameters.buildId }}"
+
+  - template: ../action/set_variable.yml
+    parameters:
+      name: Electron.Symbols.Directory
+      value: ${{ parameters._workingDirectory }}/symbols
+
+  - task: DownloadPipelineArtifact@0
+    displayName: Download electron windows ${{ parameters.arch }}
+    inputs:
+      pipelineId: ${{ parameters.buildId }}
+      artifactName: electron windows ${{ parameters.arch }}
+      targetPath: ${{ parameters._workingDirectory }}
+
+  - task: ExtractFiles@1
+    displayName: Extract symbols of electron windows ${{ parameters.arch }}
+    inputs:
+      archiveFilePatterns: ${{ parameters._workingDirectory }}/pdb.zip
+      destinationFolder: $(Electron.Symbols.Directory)
+      cleanDestinationFolder: true
+
+  - template: ../action/publish_windows_symbols_using_task.yml
+    parameters:
+      arch: ${{ parameters.arch }}
+      symbolsArtifactName: $(Electron.Symbols.Artifact.Name)
+      symbolsDirectory: $(Electron.Symbols.Directory)

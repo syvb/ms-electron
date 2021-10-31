@@ -1,0 +1,37 @@
+# https://domoreexp.visualstudio.com/Teamspace/_build?definitionId=2606
+#
+# Build Electron.
+
+trigger: none
+
+parameters:
+- name: flavour
+  displayName: Build flavour
+  type: string
+  values: ['electron', 'media', 'teams', 'vscode']
+  default: teams
+- name: buildType
+  displayName: Build type
+  type: string
+  values: ['release', 'testing']
+  default: testing
+- name: platform
+  displayName: Target platform
+  type: string
+  values: ['linux', 'mac', 'mas', 'windows']
+  default: windows
+- name: arch
+  displayName: Target architecture
+  type: string
+  values: ['arm', 'arm64', 'x86', 'x64']
+  default: x64
+
+jobs:
+- template: templates/job/build_electron.yml
+  parameters:
+    arch: ${{ parameters.arch }}
+    buildType: ${{ parameters.buildType }}
+    flavour: ${{ parameters.flavour }}
+    platform: ${{ parameters.platform }}
+    ${{ if eq(parameters.buildType, 'testing') }}:
+      useCompilerCache: true

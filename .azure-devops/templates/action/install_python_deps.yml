@@ -1,0 +1,3 @@
+steps:
+- script: pip install --requirement requirements.txt
+  displayName: Install Python dependencies

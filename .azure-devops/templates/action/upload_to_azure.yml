@@ -1,0 +1,46 @@
+# Upload files to the Electron's Azure Blob Storage.
+# Requires the Azure PowerShell to be installed on an agent.
+
+parameters:
+# Prefix path for the uploaded data.
+- name: blobPrefix
+  type: string
+  default: ''
+- name: blobType
+  type: string
+  values: ['AppendBlob', 'BlockBlob', 'Detect', 'PageBlob']
+  default: Detect
+- name: condition
+  type: string
+  default: ''
+# A name of a container inside the storage.
+- name: containerName
+  type: string
+- name: displayName
+  type: string
+  default: Upload data to an Azure storage
+# A path to a file or a directory to upload.
+- name: sourcePath
+  type: string
+# An Azure blob storage name.
+- name: storage
+  type: string
+
+steps:
+- task: AzureFileCopy@4
+  displayName: ${{ parameters.displayName }}
+  ${{ if ne(parameters.condition, '') }}:
+    condition: ${{ parameters.condition }}
+  inputs:
+    # https://docs.microsoft.com/en-us/azure/storage/common/storage-ref-azcopy-copy
+    additionalArgumentsForBlobCopy: >-
+      --blob-type=${{ parameters.blobType }}
+      --log-level=INFO
+      --recursive
+    azureSubscription: Electron  # Actually an Azure Service Connection name.
+    ${{ if ne(parameters.blobPrefix, '') }}:
+      blobPrefix: ${{ parameters.blobPrefix }}
+    containerName: ${{ parameters.containerName }}
+    destination: azureBlob
+    sourcePath: ${{ parameters.sourcePath }}
+    storage: ${{ parameters.storage }}

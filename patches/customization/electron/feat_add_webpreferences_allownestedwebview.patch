@@ -1,0 +1,70 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Milan Burda <miburda@microsoft.com>
+Date: Thu, 1 Oct 2020 00:11:09 +0200
+Subject: feat: add webPreferences.allowNestedWebView
+
+Microsoft patch
+
+diff --git a/docs/api/browser-window.md b/docs/api/browser-window.md
+index f3d0b36cfa323c00db3db577b806d7b123e77e0d..22a07dcf8fb88da4f9ece3548ffc544a1f26b4e7 100644
+--- a/docs/api/browser-window.md
++++ b/docs/api/browser-window.md
+@@ -368,6 +368,7 @@ It creates a new `BrowserWindow` with native properties as set by the `options`.
+       script. You can use the `will-attach-webview` event on [webContents](web-contents.md)
+       to strip away the `preload` script and to validate or alter the
+       `<webview>`'s initial settings.
++    * `allowNestedWebView` Boolean (optional) - Whether to allow nested `<webview>`.
+     * `additionalArguments` String[] (optional) - A list of strings that will be appended
+       to `process.argv` in the renderer process of this app.  Useful for passing small
+       bits of data down to renderer process preload scripts.
+diff --git a/lib/browser/rpc-server.js b/lib/browser/rpc-server.js
+index bdea74b2e7c8bfd33be442700b64b86e30b3e3ab..6826ec5d7961ad50d62f5972ba17df9daefc642b 100644
+--- a/lib/browser/rpc-server.js
++++ b/lib/browser/rpc-server.js
+@@ -98,6 +98,7 @@ ipcMainUtils.handleSync('ELECTRON_BROWSER_SANDBOX_LOAD', async function (event)
+     preloadScripts: await Promise.all(preloadPaths.map(path => getPreloadScript(path))),
+     isRemoteModuleEnabled: isRemoteModuleEnabled(event.sender),
+     isWebViewTagEnabled: guestViewManager.isWebViewTagEnabled(event.sender),
++    allowNestedWebView: webPreferences.allowNestedWebView,
+     guestInstanceId: webPreferences.guestInstanceId,
+     openerId: webPreferences.openerId,
+     process: {
+diff --git a/lib/renderer/web-view/web-view-init.ts b/lib/renderer/web-view/web-view-init.ts
+index 95d334bafd724d6057d3a433965d4c5a2f3be9c1..6193a78909ef876ad25a9be64a52768646a4d410 100644
+--- a/lib/renderer/web-view/web-view-init.ts
++++ b/lib/renderer/web-view/web-view-init.ts
+@@ -16,10 +16,10 @@ function handleFocusBlur (guestInstanceId: number) {
+ }
+ 
+ export function webViewInit (
+-  contextIsolation: boolean, webviewTag: ElectronInternal.WebViewElement, guestInstanceId: number
++  contextIsolation: boolean, webviewTag: ElectronInternal.WebViewElement, guestInstanceId: number, allowNestedWebView: boolean
+ ) {
+-  // Don't allow recursive `<webview>`.
+-  if (webviewTag && guestInstanceId == null) {
++  // Don't allow recursive `<webview>` unless enabled explicitly.
++  if (webviewTag && (guestInstanceId == null || allowNestedWebView)) {
+     const { webViewImplModule } = require('@electron/internal/renderer/web-view/web-view-impl');
+     if (contextIsolation) {
+       v8Util.setHiddenValue(window, 'web-view-impl', webViewImplModule);
+diff --git a/lib/sandboxed_renderer/init.js b/lib/sandboxed_renderer/init.js
+index bb5da0454a95beed1508f86b9fdad62928ef452a..e65363a636c166c8e2705995c4c938ce6eef1826 100644
+--- a/lib/sandboxed_renderer/init.js
++++ b/lib/sandboxed_renderer/init.js
+@@ -40,6 +40,7 @@ const {
+   preloadScripts,
+   isRemoteModuleEnabled,
+   isWebViewTagEnabled,
++  allowNestedWebView,
+   guestInstanceId,
+   openerId,
+   process: processProps
+@@ -173,7 +174,7 @@ switch (window.location.protocol) {
+ // Load webview tag implementation.
+ if (process.isMainFrame) {
+   const { webViewInit } = require('@electron/internal/renderer/web-view/web-view-init');
+-  webViewInit(contextIsolation, isWebViewTagEnabled, guestInstanceId);
++  webViewInit(contextIsolation, isWebViewTagEnabled, guestInstanceId, allowNestedWebView);
+ }
+ 
+ // Pass the arguments to isolatedWorld.

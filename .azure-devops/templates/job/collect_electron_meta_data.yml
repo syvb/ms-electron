@@ -1,0 +1,121 @@
+# Collect various meta data for a publishing job.
+# The job requires a built Electron binary.
+
+parameters:
+  _artifactToDownload: 'electron windows x64'
+  _dependsOn: build_electron_windows_x64
+  _platform: windows
+  _stagingDirectory: $(Build.ArtifactStagingDirectory)
+  _variablesToCreate:
+  - name: Electron.Local.ChromiumVersion
+    versionOf: chrome
+  - name: Electron.Local.ElectronVersion
+    versionOf: electron
+  - name: Electron.Local.NodeVersion
+    versionOf: node
+  _workingDirectory: $(Build.BinariesDirectory)
+
+jobs:
+- job: collect_electron_meta_data
+  displayName: Collect Electron meta data
+  dependsOn: ${{ parameters._dependsOn }}
+  pool:
+    vmImage: vs2017-win2016
+  steps:
+  - template: ../action/setup_agent.yml
+    parameters:
+      platform: ${{ parameters._platform }}
+
+  - template: ../action/checkout_self.yml
+
+  # An Electron binary is needed to get some data.
+  - task: DownloadPipelineArtifact@0
+    displayName: Download ${{ parameters._artifactToDownload }}
+    inputs:
+      artifactName: ${{ parameters._artifactToDownload }}
+      targetPath: ${{ parameters._workingDirectory }}
+
+  - task: ExtractFiles@1
+    displayName: Extract an Electron binary
+    inputs:
+      archiveFilePatterns: ${{ parameters._workingDirectory }}/dist.zip
+      destinationFolder: ${{ parameters._workingDirectory }}/electron
+      cleanDestinationFolder: true
+
+  # Create local variables to use in further tasks.
+  - ${{ each variable in parameters._variablesToCreate }}:
+    - template: ../action/capture_output.yml
+      parameters:
+        # The command should not end with a new line.
+        command: >-
+          python scripts/run_electron.py
+          "${{ parameters._workingDirectory }}/electron"
+          $(Build.SourcesDirectory)/scripts/print_electron_versions.js
+          ${{ variable.versionOf }}
+        variable: ${{ variable.name }}
+
+  - template: ../action/set_variable_from_file.yml
+    parameters:
+      filePath: ${{ parameters._workingDirectory }}/flavour.txt
+      name: Electron.Local.Flavour
+
+  # Save files to the staging directory.
+  # For single-value files make sure they do not include trailing whitespace and new lines.
+  - template: ../action/write_to_file.yml
+    parameters:
+      displayName: Write Electron version to a file in the artifacts staging directory
+      filePath: ${{ parameters._stagingDirectory }}/version.txt
+      text: $(Electron.Local.ElectronVersion)
+
+  - template: ../action/copy_file.yml
+    parameters:
+      displayName: Copy flavour.txt to the artifacts staging directory
+      from: ${{ parameters._workingDirectory }}/flavour.txt
+      to: ${{ parameters._stagingDirectory }}/flavour.txt
+
+  - template: ../action/copy_file.yml
+    parameters:
+      displayName: Copy revision.txt to the artifacts staging directory
+      from: ${{ parameters._workingDirectory }}/revision.txt
+      to: ${{ parameters._stagingDirectory }}/revision.txt
+
+  - template: ../action/write_to_file.yml
+    parameters:
+      displayName: Write build number to a file in the artifacts staging directory
+      filePath: '"${{ parameters._stagingDirectory }}/build id.txt"'
+      text: $(Build.BuildId)
+
+  - task: PythonScript@0
+    displayName: Create the third party attributions file
+    inputs:
+      scriptSource: filePath
+      scriptPath: scripts/process_template.py
+      # The template text contains the "$" symbol, so we have to use the "safe" strategy.
+      arguments: >
+        --template configs/templates/third-party_attributions.txt
+        --safe
+        --data electron_version=$(Electron.Local.ElectronVersion)
+        --output-dir ${{ parameters._stagingDirectory }}
+      failOnStderr: true
+
+  - task: PythonScript@0
+    displayName: Create the dependencies.txt file
+    inputs:
+      scriptSource: filePath
+      scriptPath: scripts/process_template.py
+      arguments: >
+        --template configs/templates/dependencies.txt
+        --data chromium_version=$(Electron.Local.ChromiumVersion) node_version=$(Electron.Local.NodeVersion)
+        --output-dir ${{ parameters._stagingDirectory }}
+      failOnStderr: true
+
+  - publish: ${{ parameters._stagingDirectory }}
+    artifact: electron meta data
+
+  - template: ../action/tag_release_build.yml
+    parameters:
+      buildId: $(Build.BuildId)
+      chromiumVersion: $(Electron.Local.ChromiumVersion)
+      electronVersion: $(Electron.Local.ElectronVersion)
+      flavour: $(Electron.Local.Flavour)
+      nodejsVersion: $(Electron.Local.NodeVersion)

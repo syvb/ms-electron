@@ -1,0 +1,284 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Milan Burda <miburda@microsoft.com>
+Date: Thu, 25 Mar 2021 15:06:31 +0100
+Subject: fix: patches due to Chromium snapshot excluding files
+
+Microsoft patch
+
+diff --git a/patches/chromium/cherry-pick-37210e5ab006.patch b/patches/chromium/cherry-pick-37210e5ab006.patch
+index b64186ffe78098ee7e8d88e4b678fc08da0e6939..9d45ea175d22f25b6e57be70fa11c32410697fe2 100644
+--- a/patches/chromium/cherry-pick-37210e5ab006.patch
++++ b/patches/chromium/cherry-pick-37210e5ab006.patch
+@@ -25,19 +25,6 @@ Commit-Queue: Victor-Gabriel Savu <vsavu@google.com>
+ Cr-Commit-Position: refs/branch-heads/4240@{#1563}
+ Cr-Branched-From: f297677702651916bbf65e59c0d4bbd4ce57d1ee-refs/heads/master@{#800218}
+ 
+-diff --git a/android_webview/javatests/src/org/chromium/android_webview/test/ConsoleMessagesForBlockedLoadsTest.java b/android_webview/javatests/src/org/chromium/android_webview/test/ConsoleMessagesForBlockedLoadsTest.java
+-index 7394abb2e639a8f3b25cca0a568135cd4e8bd0d8..c746763be2a77a87a52e9ef31bbbd25de7ba03ae 100644
+---- a/android_webview/javatests/src/org/chromium/android_webview/test/ConsoleMessagesForBlockedLoadsTest.java
+-+++ b/android_webview/javatests/src/org/chromium/android_webview/test/ConsoleMessagesForBlockedLoadsTest.java
+-@@ -94,7 +94,7 @@ public class ConsoleMessagesForBlockedLoadsTest {
+-         mActivityTestRule.loadUrlSync(
+-                 mAwContents, mContentsClient.getOnPageFinishedHelper(), pageUrl);
+-         AwConsoleMessage errorMessage = getSingleErrorMessage();
+--        assertNotEquals(errorMessage.message().indexOf(iframeUrl), -1);
+-+        assertNotEquals(errorMessage.message().indexOf(mWebServer.getBaseUrl()), -1);
+-     }
+- 
+-     @Test
+ diff --git a/content/browser/frame_host/ancestor_throttle.cc b/content/browser/frame_host/ancestor_throttle.cc
+ index 8630ace7189d465cea8360a55acf899fa801f15e..75269311d73c1d9b881bc40f320265772b074d63 100644
+ --- a/content/browser/frame_host/ancestor_throttle.cc
+@@ -86,63 +73,4 @@ index 8630ace7189d465cea8360a55acf899fa801f15e..75269311d73c1d9b881bc40f32026577
+    auto* frame = static_cast<RenderFrameHostImpl*>(
+        navigation_handle()->GetRenderFrameHost());
+    ParentForAncestorThrottle(frame)->AddMessageToConsole(
+-diff --git a/content/browser/site_per_process_browsertest.cc b/content/browser/site_per_process_browsertest.cc
+-index d81076da5ef7701475ef1158b528d02d3992ff0d..10d1a58f143906a77df33ae8da3cc1df7605c07b 100644
+---- a/content/browser/site_per_process_browsertest.cc
+-+++ b/content/browser/site_per_process_browsertest.cc
+-@@ -7109,12 +7109,26 @@ IN_PROC_BROWSER_TEST_P(SitePerProcessBrowserTest,
+-                             "document.querySelector('iframe').onload = "
+-                             "    function() { document.title = 'loaded'; };"));
+- 
+-+  // The blocked url reported in the console message should only contain the
+-+  // origin, in order to avoid sensitive data being leaked to the parent frame.
+-+  //
+-+  // TODO(https://crbug.com/1146651): We should not leak any information at all
+-+  // to the parent frame. Instead, we should send a message directly to Devtools
+-+  // (without passing through a renderer): that can also contain more
+-+  // information (like the full blocked url).
+-+  GURL reported_blocked_url = embedded_test_server()->GetURL("b.com", "/");
+-   const struct {
+-     const char* url;
+-     bool use_error_page;
+-+    std::string expected_console_message;
+-   } kTestCases[] = {
+--      {"/frame-ancestors-none.html", false},
+--      {"/x-frame-options-deny.html", true},
+-+      {"/frame-ancestors-none.html", false,
+-+       "Refused to frame '" + reported_blocked_url.spec() +
+-+           "' because an ancestor violates the following Content Security "
+-+           "Policy directive: \"frame-ancestors 'none'\".\n"},
+-+      {"/x-frame-options-deny.html", true,
+-+       "Refused to display '" + reported_blocked_url.spec() +
+-+           "' in a frame because it set 'X-Frame-Options' to 'deny'."},
+-   };
+- 
+-   for (const auto& test : kTestCases) {
+-@@ -7123,6 +7137,9 @@ IN_PROC_BROWSER_TEST_P(SitePerProcessBrowserTest,
+-     base::string16 expected_title(base::UTF8ToUTF16("loaded"));
+-     TitleWatcher title_watcher(shell()->web_contents(), expected_title);
+- 
+-+    WebContentsConsoleObserver console_observer(shell()->web_contents());
+-+    console_observer.SetPattern("Refused to*");
+-+
+-     // Navigate the subframe to a blocked URL.
+-     TestNavigationObserver load_observer(shell()->web_contents());
+-     EXPECT_TRUE(ExecuteScript(
+-@@ -7150,6 +7167,8 @@ IN_PROC_BROWSER_TEST_P(SitePerProcessBrowserTest,
+-     // The blocked frame should still fire a load event in its parent's process.
+-     EXPECT_EQ(expected_title, title_watcher.WaitAndGetTitle());
+- 
+-+    EXPECT_EQ(console_observer.GetMessageAt(0u), test.expected_console_message);
+-+
+-     // Check that the current RenderFrameHost has stopped loading.
+-     EXPECT_FALSE(root->child_at(0)->current_frame_host()->is_loading());
+- 
+-diff --git a/third_party/blink/web_tests/http/tests/security/XFrameOptions/x-frame-options-deny-delete-frame-in-load-event-expected.txt b/third_party/blink/web_tests/http/tests/security/XFrameOptions/x-frame-options-deny-delete-frame-in-load-event-expected.txt
+-index f2e5b68c997ca33da841aa7ba5795ef3b96fa02f..f7eea4a189ae8913921444428e26389dfd4de4da 100644
+---- a/third_party/blink/web_tests/http/tests/security/XFrameOptions/x-frame-options-deny-delete-frame-in-load-event-expected.txt
+-+++ b/third_party/blink/web_tests/http/tests/security/XFrameOptions/x-frame-options-deny-delete-frame-in-load-event-expected.txt
+-@@ -1,2 +1,2 @@
+--CONSOLE ERROR: Refused to display 'http://127.0.0.1:8000/security/XFrameOptions/resources/x-frame-options-deny.cgi' in a frame because it set 'X-Frame-Options' to 'deny'.
+-+CONSOLE ERROR: Refused to display 'http://127.0.0.1:8000/' in a frame because it set 'X-Frame-Options' to 'deny'.
+- Test that if an iframe is denied, we don't crash if the load event detaches the frame.
++ 
+\ No newline at end of file
+diff --git a/patches/chromium/css_make_fetches_from_inline_css_use_the_document_s_url_as_referrer.patch b/patches/chromium/css_make_fetches_from_inline_css_use_the_document_s_url_as_referrer.patch
+index 0883a3c9c5561f8a6158f49c69c856dfe4116ef2..728a600b54dedd9a05af3871f09c2f19cb865a29 100644
+--- a/patches/chromium/css_make_fetches_from_inline_css_use_the_document_s_url_as_referrer.patch
++++ b/patches/chromium/css_make_fetches_from_inline_css_use_the_document_s_url_as_referrer.patch
+@@ -323,125 +323,3 @@ index 0b6e9b6b8b66029f46ca79f24a2519f13e611005..e492003c470af4c7b96551f6dfee79d2
+          ResourceFetchRestriction::kOnlyDataUrls);
+      auto* style_sheet_contents =
+          MakeGarbageCollected<StyleSheetContents>(parser_context);
+-diff --git a/third_party/blink/web_tests/TestExpectations b/third_party/blink/web_tests/TestExpectations
+-index acf5033054cecc1099068e2452cfbef8f1ffbd95..0e9ac683c48befe5f3e740e0632bf93e7569c686 100644
+---- a/third_party/blink/web_tests/TestExpectations
+-+++ b/third_party/blink/web_tests/TestExpectations
+-@@ -3245,6 +3245,7 @@ virtual/webrtc-wpt-plan-b/external/wpt/webrtc/RTCPeerConnection-restartIce-onneg
+- # See also crbug.com/920100 (sheriff 2019-01-09).
+- crbug.com/626703 external/wpt/referrer-policy/css-integration/svg/external-stylesheet.html [ Timeout Failure ]
+- crbug.com/626703 external/wpt/referrer-policy/css-integration/svg/inline-style.html [ Timeout Failure ]
+-+crbug.com/626703 external/wpt/referrer-policy/css-integration/svg/inline-style-with-differentorigin-base-tag.tentative.html [ Timeout Failure ]
+- crbug.com/626703 external/wpt/referrer-policy/css-integration/svg/internal-stylesheet.html [ Timeout Failure ]
+- crbug.com/626703 external/wpt/referrer-policy/css-integration/svg/presentation-attribute.html [ Timeout Failure ]
+- crbug.com/626703 external/wpt/referrer-policy/css-integration/svg/processing-instruction.html [ Timeout Failure ]
+-diff --git a/third_party/blink/web_tests/external/wpt/referrer-policy/css-integration/image/inline-style-with-differentorigin-base-tag.tentative.html b/third_party/blink/web_tests/external/wpt/referrer-policy/css-integration/image/inline-style-with-differentorigin-base-tag.tentative.html
+-new file mode 100644
+-index 0000000000000000000000000000000000000000..091afd832ab35a76136b4242df1c1ec73aee109d
+---- /dev/null
+-+++ b/third_party/blink/web_tests/external/wpt/referrer-policy/css-integration/image/inline-style-with-differentorigin-base-tag.tentative.html
+-@@ -0,0 +1,45 @@
+-+<!DOCTYPE html>
+-+<title>CSS integration - image from inline style from document with base tag</title>
+-+<link rel="help" href="https://crbug.com/1158645" />
+-+
+-+<head>
+-+  <meta name="referrer" content="origin">
+-+</head>
+-+
+-+<script src="/resources/testharness.js"></script>
+-+<script src="/resources/testharnessreport.js"></script>
+-+<script src="/common/utils.js"></script>
+-+<!-- Common global functions for referrer-policy tests. -->
+-+<script src="/common/security-features/resources/common.sub.js"></script>
+-+
+-+<!-- This has to follow the <script> tags, or it will make the js files fail to load. -->
+-+<base href="http://other-site.example" />
+-+
+-+<p>Check that resources from inline styles are loaded with
+-+  the referrer and referrer policy from the document and, in
+-+  particular, not with the different base URL set in the base tag.</p>
+-+
+-+<div class="styled"></div>
+-+
+-+<script>
+-+  'use strict';
+-+  promise_test(function(css_test) {
+-+    var id = token();
+-+    var css_url = location.protocol + "//www1." + location.hostname + ":" + location.port + "/common/security-features/subresource/image.py" + "?id=" + id;
+-+    var img_url = css_url + "&report-headers";
+-+
+-+    var div = document.querySelector("div.styled");
+-+    div.style = "content:url(" + css_url + ")";
+-+    return timeoutPromise(css_test, 1000)
+-+      .then(() => requestViaXhr(img_url))
+-+      .then(function(message) {
+-+        assert_own_property(message, "headers");
+-+        assert_own_property(message, "referrer");
+-+        assert_equals(message.referrer, location.origin + "/");
+-+      });
+-+  }, "Image from inline styles.");
+-+</script>
+-+
+-+<div id="log"></div>
+-+
+-+</html>
+-diff --git a/third_party/blink/web_tests/external/wpt/referrer-policy/css-integration/svg/inline-style-with-differentorigin-base-tag.tentative.html b/third_party/blink/web_tests/external/wpt/referrer-policy/css-integration/svg/inline-style-with-differentorigin-base-tag.tentative.html
+-new file mode 100644
+-index 0000000000000000000000000000000000000000..9a8bc6da418bc7302138daba8cf06cb449bd2dfe
+---- /dev/null
+-+++ b/third_party/blink/web_tests/external/wpt/referrer-policy/css-integration/svg/inline-style-with-differentorigin-base-tag.tentative.html
+-@@ -0,0 +1,40 @@
+-+<!DOCTYPE html>
+-+<html>
+-+
+-+<head>
+-+  <title>CSS integration - styling SVG from inline style on page with different-origin base tag</title>
+-+  <script src="/resources/testharness.js"></script>
+-+  <script src="/resources/testharnessreport.js"></script>
+-+  <script src="/common/utils.js"></script>
+-+  <!-- Common global functions for referrer-policy tests. -->
+-+  <script src="/common/security-features/resources/common.sub.js"></script>
+-+  <!-- Helper functions for referrer-policy css tests. -->
+-+  <script src="/referrer-policy/css-integration/css-test-helper.js"></script>
+-+  <meta name="referrer" content="origin">
+-+</head>
+-+
+-+<base href="http://other-page.example/" />
+-+
+-+<body>
+-+  <p>Check that resources from inline styles are loaded with
+-+    the referrer and referrer policy from the document and, in
+-+    particular, not from the document's overridden base URL.</p>
+-+  <script>
+-+    function setInlineStyle(test) {
+-+      test.expected = location.origin + "/";
+-+      let svg = createSvg();
+-+      document.body.appendChild(svg);
+-+      let element = svg.getElementsByTagName('path')[0];
+-+      element.style = test.property + ": url(" + url_prefix + "svg.py?id=" +
+-+        test.id + "#invalidFragment);";
+-+    }
+-+
+-+    runSvgTests(svg_test_properties,
+-+      "Styling SVG from inline styles",
+-+      setInlineStyle);
+-+  </script>
+-+
+-+  <div id="log"></div>
+-+</body>
+-+
+-+</html>
+-diff --git a/third_party/blink/web_tests/http/tests/css/resources/referrer-check.php b/third_party/blink/web_tests/http/tests/css/resources/referrer-check.php
+-index 69483e01544c842f56a51d00d1b2ee5dc24b4162..7a517de692f418c3c8b365d0f7aefb9e585c9da0 100644
+---- a/third_party/blink/web_tests/http/tests/css/resources/referrer-check.php
+-+++ b/third_party/blink/web_tests/http/tests/css/resources/referrer-check.php
+-@@ -31,7 +31,7 @@ $expectedReferrerPaths = array(
+-     "document" => "/css/css-resources-referrer.html",
+-     "sheet" => "/css/resources/css-resources-referrer.css",
+-     "importedSheet" => "/css/resources/css-resources-referrer-import.css",
+--    "iframe" => "/from/iframe.html"
+-+    "iframe" => "/css/css-resources-referrer-srcdoc.html"
+- );
+- 
+- $from = $_GET["from"];
+diff --git a/patches/chromium/use_idtype_for_permission_change_subscriptions.patch b/patches/chromium/use_idtype_for_permission_change_subscriptions.patch
+index a2cdffc236f2f386ef60c754702f91925b3f73a7..bc8115a9a566edff3df3d4a19c745e699a3110cc 100644
+--- a/patches/chromium/use_idtype_for_permission_change_subscriptions.patch
++++ b/patches/chromium/use_idtype_for_permission_change_subscriptions.patch
+@@ -26,52 +26,6 @@ Owners-Override: Achuith Bhandarkar <achuith@chromium.org>
+ Cr-Commit-Position: refs/branch-heads/4240@{#1607}
+ Cr-Branched-From: f297677702651916bbf65e59c0d4bbd4ce57d1ee-refs/heads/master@{#800218}
+ 
+-diff --git a/android_webview/browser/aw_permission_manager.cc b/android_webview/browser/aw_permission_manager.cc
+-index bedb16b046d45b257e28e29e410afe43f5c8817c..c020e9668cbd2de9d36d2e160a07e324a2510d6b 100644
+---- a/android_webview/browser/aw_permission_manager.cc
+-+++ b/android_webview/browser/aw_permission_manager.cc
+-@@ -469,16 +469,17 @@ PermissionStatus AwPermissionManager::GetPermissionStatusForFrame(
+-           .GetOrigin());
+- }
+- 
+--int AwPermissionManager::SubscribePermissionStatusChange(
+-+AwPermissionManager::SubscriptionId
+-+AwPermissionManager::SubscribePermissionStatusChange(
+-     PermissionType permission,
+-     content::RenderFrameHost* render_frame_host,
+-     const GURL& requesting_origin,
+-     base::RepeatingCallback<void(PermissionStatus)> callback) {
+--  return content::PermissionController::kNoPendingOperation;
+-+  return SubscriptionId();
+- }
+- 
+- void AwPermissionManager::UnsubscribePermissionStatusChange(
+--    int subscription_id) {}
+-+    SubscriptionId subscription_id) {}
+- 
+- void AwPermissionManager::CancelPermissionRequest(int request_id) {
+-   PendingRequest* pending_request = pending_requests_.Lookup(request_id);
+-diff --git a/android_webview/browser/aw_permission_manager.h b/android_webview/browser/aw_permission_manager.h
+-index d9670cac33b84016568e9693b62e83c5e7ee0969..7439e78199783b8ebe2c303ebebf0e1cf62dc718 100644
+---- a/android_webview/browser/aw_permission_manager.h
+-+++ b/android_webview/browser/aw_permission_manager.h
+-@@ -49,13 +49,14 @@ class AwPermissionManager : public content::PermissionControllerDelegate {
+-       content::PermissionType permission,
+-       content::RenderFrameHost* render_frame_host,
+-       const GURL& requesting_origin) override;
+--  int SubscribePermissionStatusChange(
+-+  SubscriptionId SubscribePermissionStatusChange(
+-       content::PermissionType permission,
+-       content::RenderFrameHost* render_frame_host,
+-       const GURL& requesting_origin,
+-       base::RepeatingCallback<void(blink::mojom::PermissionStatus)> callback)
+-       override;
+--  void UnsubscribePermissionStatusChange(int subscription_id) override;
+-+  void UnsubscribePermissionStatusChange(
+-+      SubscriptionId subscription_id) override;
+- 
+-  protected:
+-   void CancelPermissionRequest(int request_id);
+ diff --git a/chrome/browser/permissions/permission_manager_browsertest.cc b/chrome/browser/permissions/permission_manager_browsertest.cc
+ index 440203ce6eca40070e09eae8bafe2a50bea75060..d48e6d85611b2ea4560f56d5e09fafa3a3453e7a 100644
+ --- a/chrome/browser/permissions/permission_manager_browsertest.cc

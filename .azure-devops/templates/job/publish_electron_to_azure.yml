@@ -1,0 +1,125 @@
+# Publish Electron to an Azure storage.
+
+parameters:
+  buildId: ''  # An id of a build that created Electron distribution. An empty string stands for the current build.
+  dryRun: false  # Do everything except the actual uploading.
+  container: builds  # An Azure blob container name.
+  _artifactsToDownload:
+  - 'electron linux arm'
+  - 'electron linux arm64'
+  - 'electron linux x64'
+  - 'electron mac x64'
+  - 'electron windows arm64'
+  - 'electron windows x64'
+  - 'electron windows x86'
+  - 'ffmpeg linux'
+  - 'ffmpeg mac'
+  - 'ffmpeg windows'
+  - 'electron meta data'
+  # An agent working directory is located on disk D:
+  # of Microsoft-hosted Windows agents.
+  # That disk has too little free disk space, only about 14 GB,
+  # and it's not enough to fit Electron binaries for all platforms.
+  # Let's use disk C: which has much more free disk space.
+  _downloadsDirectory: 'C:\.electron\downloads'
+  _platform: windows
+  _stagingDirectory: 'C:\.electron\staging'
+  _storages:
+  - name: electron
+  - name: electronwestus2
+    type: BlockBlob
+
+jobs:
+- job: publish_electron_to_azure
+  displayName: Publish Electron to Azure
+  timeoutInMinutes: 30
+  pool:
+    vmImage: vs2017-win2016
+  steps:
+  - template: ../action/setup_agent.yml
+    parameters:
+      platform: ${{ parameters._platform }}
+      usePython: 3  # Some Python 3 features are required.
+
+  - template: ../action/checkout_self.yml
+
+  - powershell: Get-PSDrive
+    displayName: Show initial disk space
+
+  - ${{ each artifactName in parameters._artifactsToDownload }}:
+    - task: DownloadPipelineArtifact@0
+      displayName: Download ${{ artifactName }}
+      inputs:
+        pipelineId: ${{ parameters.buildId }}
+        artifactName: ${{ artifactName }}
+        targetPath: ${{ parameters._downloadsDirectory }}/${{ artifactName }}
+
+  # We need to pass a version string to the upload step.
+  - template: ../action/set_variable_from_file.yml
+    parameters:
+      filePath: '${{ parameters._downloadsDirectory }}/electron meta data/version.txt'
+      name: Electron.Local.Version
+      stepName: set_version_variable
+
+  # We need to pass a flavour string to the upload step.
+  - template: ../action/set_variable_from_file.yml
+    parameters:
+      filePath: '${{ parameters._downloadsDirectory }}/electron meta data/flavour.txt'
+      name: Electron.Local.Flavour
+      stepName: set_flavour_variable
+
+  - template: ../action/set_variable.yml
+    parameters:
+      name: Electron.Local.BuildId
+      value: ${{ coalesce(parameters.buildId, '$(Build.BuildId)') }}
+
+  # Create a files' structure ready to be published.
+  - task: PythonScript@0
+    displayName: Prepare files for upload
+    inputs:
+      scriptSource: filePath
+      scriptPath: scripts/create_publishing_layout.py
+      arguments: >
+        --config configs/publishing_layout/electron_azure.layout.json
+        --data flavour=$(Electron.Local.Flavour) version=$(Electron.Local.Version)
+        --input-dir ${{ parameters._downloadsDirectory }}
+        --output-dir ${{ parameters._stagingDirectory }}
+      failOnStderr: true
+
+  - powershell: Get-PSDrive
+    displayName: Show remaining disk space
+
+  - ${{ each storage in parameters._storages }}:
+    - template: ../action/upload_to_azure.yml
+      parameters:
+        blobPrefix: '$(Electron.Local.Version)/$(Electron.Local.Flavour)/$(Electron.Local.BuildId)'
+        ${{ if eq(parameters.dryRun, true) }}:
+          condition: false
+        containerName: ${{ parameters.container }}
+        displayName: Upload build ${{ parameters.buildId }} to "${{ storage.name }}"
+        ${{ if ne(storage.type, '') }}:
+          blobType: ${{ storage.type }}
+        sourcePath: ${{ parameters._stagingDirectory }}/*
+        storage: ${{ storage.name }}
+
+  - template: ../action/set_variable_from_file.yml
+    parameters:
+      filePath: '${{ parameters._downloadsDirectory }}/electron meta data/revision.txt'
+      name: Electron.Local.BuildRevision
+      stepName: set_revision_variable
+
+  - template: ../action/tag_release_build.yml
+    parameters:
+      buildId: $(Electron.Local.BuildId)
+      electronVersion: $(Electron.Local.Version)
+      flavour: $(Electron.Local.Flavour)
+
+  - template: ../action/git_tag.yml
+    parameters:
+      # Tag only published builds.
+      ${{ if eq(parameters.dryRun, true) }}:
+        condition: false
+      displayName: Tag a Git commit with a release build id
+      push: true
+      revision: $(Electron.Local.BuildRevision)
+      tag: build-$(Electron.Local.BuildId)

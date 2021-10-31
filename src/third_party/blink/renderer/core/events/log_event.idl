@@ -1,0 +1,10 @@
+interface LogEvent : Event {
+    const unsigned short LOG_LEVEL_DEFAULT = 0;
+    const unsigned short LOG_LEVEL_DEBUG = 1;
+    const unsigned short LOG_LEVEL_INFO = 2;
+    const unsigned short LOG_LEVEL_WARNING = 3;
+    const unsigned short LOG_LEVEL_ERROR = 4;
+
+    readonly attribute unsigned short level;
+    readonly attribute DOMString message;
+};

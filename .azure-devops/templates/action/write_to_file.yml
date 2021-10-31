@@ -1,0 +1,17 @@
+# Writes text to a file.
+
+parameters:
+  displayName: Write text to file
+  filePath: ''  # An absolute path.
+  text: ''
+
+steps:
+- task: PythonScript@0
+  displayName: ${{ parameters.displayName }}
+  inputs:
+    scriptSource: filePath
+    scriptPath: scripts/write_to_file.py
+    arguments: >
+      --text ${{ parameters.text }}
+      --file-path ${{ parameters.filePath }}
+    failOnStderr: true

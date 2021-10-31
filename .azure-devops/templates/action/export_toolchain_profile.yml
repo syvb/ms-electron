@@ -1,0 +1,25 @@
+parameters:
+  outputDirectory: ''
+  srcDirectory: ''
+  _profilePath: $(Agent.TempDirectory)/toolchain_profile.json
+
+steps:
+- task: PythonScript@0
+  displayName: Export toolchain profile
+  inputs:
+    scriptSource: filePath
+    scriptPath: ${{ parameters.srcDirectory }}/electron/build/profile_toolchain.py
+    arguments: >
+      --output-json=${{ parameters._profilePath }}
+    failOnStderr: true
+  env:
+    # Explicitly state that we use a locally installed toolchain.
+    DEPOT_TOOLS_WIN_TOOLCHAIN: 0
+
+- task: ArchiveFiles@2
+  displayName: Create the toolchain profile archive
+  inputs:
+    rootFolderOrFile: ${{ parameters._profilePath }}
+    includeRootFolder: false
+    archiveType: zip
+    archiveFile: ${{ parameters.outputDirectory }}/toolchain_profile.zip

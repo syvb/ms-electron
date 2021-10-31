@@ -1,0 +1,22 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tobias Smolka <tosmolka@microsoft.com>
+Date: Fri, 29 Jan 2021 16:36:18 +0100
+Subject: fix: pass updated NODE_OPTIONS to Node.js
+
+Microsoft patch
+
+diff --git a/shell/common/node_bindings.cc b/shell/common/node_bindings.cc
+index c2d33c47310b506de9ab1038d45ad89635305454..b986b3eafc6d51c980c4b798fbaa19f334b77fb3 100644
+--- a/shell/common/node_bindings.cc
++++ b/shell/common/node_bindings.cc
+@@ -245,6 +245,10 @@ void SetNodeOptions(base::Environment* env) {
+ 
+     // overwrite new NODE_OPTIONS without unsupported variables
+     env->SetVar("NODE_OPTIONS", options);
++    // https://github.com/electron/electron/issues/27551
++#if defined(OS_WIN)
++    ::_putenv_s("NODE_OPTIONS", options.c_str());
++#endif
+   }
+ }
+ 

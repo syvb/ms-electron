@@ -1,0 +1,613 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Milan Burda <miburda@microsoft.com>
+Date: Thu, 22 Apr 2021 20:53:59 +0200
+Subject: feat: port Tenant Restrictions v2 from Edge
+
+Microsoft patch
+
+diff --git a/services/network/BUILD.gn b/services/network/BUILD.gn
+index 1a4135ea4b77753d40691b741c8726df7cc875b2..d49c873eb1d9be698dff7d6b09214a5a6ee262f7 100644
+--- a/services/network/BUILD.gn
++++ b/services/network/BUILD.gn
+@@ -3,6 +3,7 @@
+ # found in the LICENSE file.
+ 
+ import("//build/config/jumbo.gni")
++import("//microsoft/buildflags/buildflags.gni")
+ import("//mojo/public/tools/bindings/mojom.gni")
+ import("//net/features.gni")
+ import("//services/network/public/cpp/features.gni")
+@@ -247,6 +248,18 @@ jumbo_component("network_service") {
+     "//url",
+   ]
+ 
++  if (microsoft_enable_tenant_restrictions) {
++    deps += [
++      "//microsoft/src/components/edge_adjust_headers",
++      "//microsoft/src/components/edge_tenant/common:trv2",
++    ]
++
++    sources += [
++      "//microsoft/src/services/network/edge_header_observers/trv2/tenant_restrictions_header_observer.cc",
++      "//microsoft/src/services/network/edge_header_observers/trv2/tenant_restrictions_header_observer.h",
++    ]
++  }
++
+   public_deps = [ "//services/network/public/cpp:buildflags" ]
+ 
+   if (is_ct_supported) {
+diff --git a/services/network/network_service.cc b/services/network/network_service.cc
+index 75b0c7e2e97370a708fed3e596c2fb061c415dbf..eb198afffed17f6fc478f3f5c320a80befc2596b 100644
+--- a/services/network/network_service.cc
++++ b/services/network/network_service.cc
+@@ -77,6 +77,11 @@
+ #include "net/android/http_auth_negotiate_android.h"
+ #endif
+ 
++#if BUILDFLAG(MICROSOFT_ENABLE_TENANT_RESTRICTIONS)
++#include "microsoft/src/components/edge_adjust_headers/adjust_trusted_headers_manager.h"
++#include "microsoft/src/services/network/edge_header_observers/trv2/tenant_restrictions_header_observer.h"
++#endif
++
+ namespace network {
+ 
+ namespace {
+@@ -388,6 +393,18 @@ NetworkService::~NetworkService() {
+ 
+   if (initialized_)
+     trace_net_log_observer_.StopWatchForTraceStart();
++
++#if BUILDFLAG(MICROSOFT_ENABLE_TENANT_RESTRICTIONS)
++  // Unregister header observers.
++  if (edge_headers_manager_) {
++    if (trv2_header_observer_) {
++      edge_headers_manager_->Unregister(trv2_header_observer_.get());
++      trv2_header_observer_.reset();
++    }
++
++    edge_headers_manager_.reset();
++  }
++#endif
+ }
+ 
+ void NetworkService::set_os_crypt_is_configured() {
+@@ -936,4 +953,27 @@ NetworkService* NetworkService::GetNetworkServiceForTesting() {
+   return g_network_service;
+ }
+ 
++#if BUILDFLAG(MICROSOFT_ENABLE_TENANT_RESTRICTIONS)
++
++edge::AdjustTrustedHeadersManager* NetworkService::edge_headers_manager() {
++  if (!edge_headers_manager_) {
++    edge_headers_manager_ =
++        std::make_unique<edge::AdjustTrustedHeadersManager>();
++  }
++  return edge_headers_manager_.get();
++}
++
++void NetworkService::UpdateTrv2HeaderPolicies(
++    const std::string& payload,
++    const std::vector<std::string>& hostnames) {
++  if (!trv2_header_observer_) {
++    trv2_header_observer_ =
++        std::make_unique<edge::tenant_restrictions::Trv2HeaderObserver>();
++    edge_headers_manager()->Register(trv2_header_observer_.get());
++  }
++  trv2_header_observer_->Update(payload, hostnames);
++}
++
++#endif
++
+ }  // namespace network
+diff --git a/services/network/network_service.h b/services/network/network_service.h
+index 50120d006a0176d0b79fb1ed8e981179a9416f68..de25420634c40574f219938dc59aa7e2d554e540 100644
+--- a/services/network/network_service.h
++++ b/services/network/network_service.h
+@@ -23,6 +23,7 @@
+ #include "base/time/time.h"
+ #include "base/timer/timer.h"
+ #include "build/build_config.h"
++#include "microsoft/buildflags/buildflags.h"
+ #include "mojo/public/cpp/bindings/pending_receiver.h"
+ #include "mojo/public/cpp/bindings/pending_remote.h"
+ #include "mojo/public/cpp/bindings/receiver.h"
+@@ -43,6 +44,15 @@
+ #include "services/network/trust_tokens/trust_token_key_commitments.h"
+ #include "services/service_manager/public/cpp/binder_registry.h"
+ 
++#if BUILDFLAG(MICROSOFT_ENABLE_TENANT_RESTRICTIONS)
++namespace edge {
++class AdjustTrustedHeadersManager;
++namespace tenant_restrictions {
++class Trv2HeaderObserver;
++}  // namespace tenant_restrictions
++}  // namespace edge
++#endif
++
+ namespace net {
+ class FileNetLogObserver;
+ class HostResolverManager;
+@@ -220,6 +230,12 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) NetworkService
+   void BindTestInterface(
+       mojo::PendingReceiver<mojom::NetworkServiceTest> receiver) override;
+ 
++#if BUILDFLAG(MICROSOFT_ENABLE_TENANT_RESTRICTIONS)
++  void UpdateTrv2HeaderPolicies(
++      const std::string& payload,
++      const std::vector<std::string>& hostnames) override;
++#endif
++
+   // Returns an HttpAuthHandlerFactory for the given NetworkContext.
+   std::unique_ptr<net::HttpAuthHandlerFactory> CreateHttpAuthHandlerFactory(
+       NetworkContext* network_context);
+@@ -287,6 +303,10 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) NetworkService
+   void OnDataPipeDropped(DataPipeUser user);
+   void StopMetricsTimerForTesting();
+ 
++#if BUILDFLAG(MICROSOFT_ENABLE_TENANT_RESTRICTIONS)
++  edge::AdjustTrustedHeadersManager* edge_headers_manager();
++#endif
++
+   static NetworkService* GetNetworkServiceForTesting();
+ 
+  private:
+@@ -419,6 +439,12 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) NetworkService
+   };
+   base::flat_map<DataPipeUser, DataPipeUsage> data_pipe_use_;
+ 
++#if BUILDFLAG(MICROSOFT_ENABLE_TENANT_RESTRICTIONS)
++  std::unique_ptr<edge::tenant_restrictions::Trv2HeaderObserver>
++      trv2_header_observer_;
++  std::unique_ptr<edge::AdjustTrustedHeadersManager> edge_headers_manager_;
++#endif
++
+   DISALLOW_COPY_AND_ASSIGN(NetworkService);
+ };
+ 
+diff --git a/services/network/public/cpp/cors/cors.cc b/services/network/public/cpp/cors/cors.cc
+index 6e12d8f2970e175bed4e4eee96f7482b4a85c4e9..72f9588f6fca95dabeb35019c47fd0c5b98d036a 100644
+--- a/services/network/public/cpp/cors/cors.cc
++++ b/services/network/public/cpp/cors/cors.cc
+@@ -14,6 +14,7 @@
+ #include "base/no_destructor.h"
+ #include "base/strings/string_piece.h"
+ #include "base/strings/string_util.h"
++#include "microsoft/buildflags/buildflags.h"
+ #include "net/base/mime_util.h"
+ #include "net/http/http_request_headers.h"
+ #include "net/http/http_util.h"
+@@ -423,6 +424,7 @@ bool IsCorsSafelistedHeader(
+   // Treat 'Intervention' as a CORS-safelisted header, since it is added by
+   // Chrome when an intervention is (or may be) applied.
+   static const char* const safe_names[] = {
++    // clang-format off
+       "accept",
+       "accept-language",
+       "content-language",
+@@ -457,6 +459,12 @@ bool IsCorsSafelistedHeader(
+       "sec-ch-ua-mobile",
+       "sec-ch-ua-full-version",
+       "sec-ch-ua-platform-version",
++#if BUILDFLAG(MICROSOFT_ENABLE_TENANT_RESTRICTIONS)
++      // Treat 'Sec-Restrict-Tenant-Access-Policy as a CORS-safelisted header,
++      // since it is added by Electron when Tenant Restrictions (V2) is enabled.
++      "sec-restrict-tenant-access-policy",
++#endif
++    // clang-format on
+   };
+   if (std::find(std::begin(safe_names), std::end(safe_names), lower_name) ==
+       std::end(safe_names))
+diff --git a/services/network/public/mojom/BUILD.gn b/services/network/public/mojom/BUILD.gn
+index 4d5bef25d3ce057407665b92cfd81d54087bc5c5..13f0bf7b63d09b23d8dba8b4dab5bf69a4d08e13 100644
+--- a/services/network/public/mojom/BUILD.gn
++++ b/services/network/public/mojom/BUILD.gn
+@@ -2,6 +2,7 @@
+ # Use of this source code is governed by a BSD-style license that can be
+ # found in the LICENSE file.
+ 
++import("//microsoft/buildflags/buildflags.gni")
+ import("//mojo/public/tools/bindings/mojom.gni")
+ import("//net/features.gni")
+ import("//services/network/public/cpp/features.gni")
+@@ -523,6 +524,10 @@ mojom("mojom") {
+     enabled_features += [ "is_builtin_cert_verifier_feature_supported" ]
+   }
+ 
++  if (microsoft_enable_tenant_restrictions) {
++    enabled_features += [ "microsoft_enable_tenant_restrictions" ]
++  }
++
+   # Typemaps which apply to both Blink and non-Blink bindings.
+   shared_cpp_typemaps = [
+     {
+diff --git a/services/network/public/mojom/network_service.mojom b/services/network/public/mojom/network_service.mojom
+index 6a016cc0eb0f0a958196811d75a0c43cdf2e80f5..4108bfca987498c893a03b724c15e00bcd40f6fc 100644
+--- a/services/network/public/mojom/network_service.mojom
++++ b/services/network/public/mojom/network_service.mojom
+@@ -408,4 +408,7 @@ interface NetworkService {
+   // Binds the test service's testing interface. Available only in some test
+   // environments.
+   BindTestInterface(pending_receiver<NetworkServiceTest> receiver);
++
++  [EnableIf=microsoft_enable_tenant_restrictions]
++  UpdateTrv2HeaderPolicies(string payload, array<string> hostnames);
+ };
+diff --git a/services/network/url_loader.cc b/services/network/url_loader.cc
+index 0cc2e561667dd1454409365a13d1daaced997c62..8642941a884b3a6fcba4bb04325ccf1dda60f994 100644
+--- a/services/network/url_loader.cc
++++ b/services/network/url_loader.cc
+@@ -68,6 +68,10 @@
+ #include "services/network/trust_tokens/operation_timing_request_helper_wrapper.h"
+ #include "services/network/trust_tokens/trust_token_request_helper.h"
+ 
++#if BUILDFLAG(MICROSOFT_ENABLE_TENANT_RESTRICTIONS)
++#include "microsoft/src/components/edge_adjust_headers/adjust_trusted_headers.h"
++#endif
++
+ namespace network {
+ 
+ namespace {
+@@ -473,7 +477,11 @@ URLLoader::URLLoader(
+     mojom::TrustedURLLoaderAuthClient* url_loader_auth_client,
+     mojom::OriginPolicyManager* origin_policy_manager,
+     std::unique_ptr<TrustTokenRequestHelperFactory> trust_token_helper_factory,
+-    mojo::PendingRemote<mojom::CookieAccessObserver> cookie_observer)
++    mojo::PendingRemote<mojom::CookieAccessObserver> cookie_observer,
++#if BUILDFLAG(MICROSOFT_ENABLE_TENANT_RESTRICTIONS)
++    std::unique_ptr<edge::AdjustTrustedHeaders> edge_trusted_headers,
++#endif
++    bool dummy)
+     : url_request_context_(url_request_context),
+       network_service_client_(network_service_client),
+       network_context_client_(network_context_client),
+@@ -514,6 +522,9 @@ URLLoader::URLLoader(
+       trust_token_helper_factory_(std::move(trust_token_helper_factory)),
+       isolated_world_origin_(request.isolated_world_origin),
+       cookie_observer_(std::move(cookie_observer)),
++#if BUILDFLAG(MICROSOFT_ENABLE_TENANT_RESTRICTIONS)
++      edge_trusted_headers_(std::move(edge_trusted_headers)),
++#endif
+       has_fetch_streaming_upload_body_(HasFetchStreamingUploadBody(&request)),
+       allow_http1_for_streaming_upload_(
+           request.request_body &&
+@@ -1504,6 +1515,9 @@ int URLLoader::OnBeforeStartTransaction(net::CompletionOnceCallback callback,
+                                  std::move(callback), headers));
+     return net::ERR_IO_PENDING;
+   }
++#if BUILDFLAG(MICROSOFT_ENABLE_TENANT_RESTRICTIONS)
++  AdjustHeadersIfNeeded(headers);
++#endif
+   return net::OK;
+ }
+ 
+@@ -1886,9 +1900,32 @@ void URLLoader::OnBeforeSendHeadersComplete(
+     const base::Optional<net::HttpRequestHeaders>& headers) {
+   if (headers)
+     *out_headers = headers.value();
++#if BUILDFLAG(MICROSOFT_ENABLE_TENANT_RESTRICTIONS)
++  AdjustHeadersIfNeeded(out_headers);
++#endif
+   std::move(callback).Run(result);
+ }
+ 
++#if BUILDFLAG(MICROSOFT_ENABLE_TENANT_RESTRICTIONS)
++
++void URLLoader::AdjustHeadersIfNeeded(net::HttpRequestHeaders* out_headers) {
++  if (edge_trusted_headers_) {
++    url_request_->LogBlockedBy("Modifying Headers");
++    base::TimeTicks start = base::TimeTicks::Now();
++    base::Optional<net::HttpRequestHeaders> modified_headers =
++        edge_trusted_headers_->OnBeforeSendHeaders(*out_headers);
++    if (modified_headers) {
++      *out_headers = modified_headers.value();
++    }
++    UMA_HISTOGRAM_TIMES(
++        "Microsoft.AdjustTrustedHeaders.TimeToProcess.UrlRequest",
++        base::TimeTicks::Now() - start);
++    url_request_->LogUnblocked();
++  }
++}
++
++#endif
++
+ void URLLoader::OnHeadersReceivedComplete(
+     net::CompletionOnceCallback callback,
+     scoped_refptr<net::HttpResponseHeaders>* out_headers,
+diff --git a/services/network/url_loader.h b/services/network/url_loader.h
+index b70780428d056e5306e215ba7d86a2e729ffaeda..87ec159ae19d42d6afd526ec39ac2f6e04da42cd 100644
+--- a/services/network/url_loader.h
++++ b/services/network/url_loader.h
+@@ -17,6 +17,7 @@
+ #include "base/memory/weak_ptr.h"
+ #include "base/optional.h"
+ #include "base/unguessable_token.h"
++#include "microsoft/buildflags/buildflags.h"
+ #include "mojo/public/cpp/bindings/pending_receiver.h"
+ #include "mojo/public/cpp/bindings/pending_remote.h"
+ #include "mojo/public/cpp/bindings/receiver.h"
+@@ -44,6 +45,12 @@
+ #include "services/network/trust_tokens/trust_token_request_helper_factory.h"
+ #include "services/network/upload_progress_tracker.h"
+ 
++#if BUILDFLAG(MICROSOFT_ENABLE_TENANT_RESTRICTIONS)
++namespace edge {
++class AdjustTrustedHeaders;
++}  // namespace edge
++#endif
++
+ namespace net {
+ class HttpResponseHeaders;
+ class URLRequestContext;
+@@ -119,7 +126,12 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) URLLoader
+       mojom::OriginPolicyManager* origin_policy_manager,
+       std::unique_ptr<TrustTokenRequestHelperFactory>
+           trust_token_helper_factory,
+-      mojo::PendingRemote<mojom::CookieAccessObserver> cookie_observer);
++      mojo::PendingRemote<mojom::CookieAccessObserver> cookie_observer,
++#if BUILDFLAG(MICROSOFT_ENABLE_TENANT_RESTRICTIONS)
++      std::unique_ptr<edge::AdjustTrustedHeaders> edge_trusted_headers =
++          nullptr,
++#endif
++      bool dummy = false);
+   ~URLLoader() override;
+ 
+   // mojom::URLLoader implementation:
+@@ -303,6 +315,9 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) URLLoader
+       net::HttpRequestHeaders* out_headers,
+       int result,
+       const base::Optional<net::HttpRequestHeaders>& headers);
++#if BUILDFLAG(MICROSOFT_ENABLE_TENANT_RESTRICTIONS)
++  void AdjustHeadersIfNeeded(net::HttpRequestHeaders* out_headers);
++#endif
+   void OnHeadersReceivedComplete(
+       net::CompletionOnceCallback callback,
+       scoped_refptr<net::HttpResponseHeaders>* out_headers,
+@@ -497,6 +512,10 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) URLLoader
+   // Observer listening to all cookie reads and writes made by this request.
+   mojo::Remote<mojom::CookieAccessObserver> cookie_observer_;
+ 
++#if BUILDFLAG(MICROSOFT_ENABLE_TENANT_RESTRICTIONS)
++  std::unique_ptr<edge::AdjustTrustedHeaders> edge_trusted_headers_;
++#endif
++
+   // Indicates |url_request_| is fetch upload request and that has streaming
+   // body.
+   const bool has_fetch_streaming_upload_body_;
+diff --git a/services/network/url_loader_factory.cc b/services/network/url_loader_factory.cc
+index 7e5bb5d1384488de2dee3672f933eba643dc14f7..d709c09ad529980147b17589ffc9aaf143b49d1e 100644
+--- a/services/network/url_loader_factory.cc
++++ b/services/network/url_loader_factory.cc
+@@ -31,6 +31,11 @@
+ #include "url/gurl.h"
+ #include "url/origin.h"
+ 
++#if BUILDFLAG(MICROSOFT_ENABLE_TENANT_RESTRICTIONS)
++#include "microsoft/src/components/edge_adjust_headers/adjust_trusted_headers.h"
++#include "microsoft/src/components/edge_adjust_headers/adjust_trusted_headers_manager.h"
++#endif
++
+ namespace network {
+ 
+ namespace {
+@@ -258,6 +263,15 @@ void URLLoaderFactory::CreateLoaderAndStart(
+     cookie_observer_->Clone(cookie_observer.InitWithNewPipeAndPassReceiver());
+   }
+ 
++#if BUILDFLAG(MICROSOFT_ENABLE_TENANT_RESTRICTIONS)
++  std::unique_ptr<edge::AdjustTrustedHeaders> adjust_headers;
++  if (context_->network_service()) {
++    adjust_headers = context_->network_service()
++                         ->edge_headers_manager()
++                         ->MakeCallbackForRequest(context_, url_request.url);
++  }
++#endif
++
+   auto loader = std::make_unique<URLLoader>(
+       context_->url_request_context(), network_service_client,
+       context_->client(),
+@@ -273,7 +287,11 @@ void URLLoaderFactory::CreateLoaderAndStart(
+       header_client_.is_bound() ? header_client_.get() : nullptr,
+       auth_client_.is_bound() ? auth_client_.get() : nullptr,
+       context_->origin_policy_manager(), std::move(trust_token_factory),
+-      std::move(cookie_observer));
++      std::move(cookie_observer),
++#if BUILDFLAG(MICROSOFT_ENABLE_TENANT_RESTRICTIONS)
++      std::move(adjust_headers),
++#endif
++      true);
+ 
+   cors_url_loader_factory_->OnLoaderCreated(std::move(loader));
+ }
+diff --git a/services/network/websocket.cc b/services/network/websocket.cc
+index dcf9d7ccb77c3c0e5dd59856bdc29bc7872fe3e0..8560d322001d10b1c4a5de8dfc7c7b830dd8984e 100644
+--- a/services/network/websocket.cc
++++ b/services/network/websocket.cc
+@@ -41,6 +41,10 @@
+ #include "services/network/public/cpp/features.h"
+ #include "services/network/websocket_factory.h"
+ 
++#if BUILDFLAG(MICROSOFT_ENABLE_TENANT_RESTRICTIONS)
++#include "microsoft/src/components/edge_adjust_headers/adjust_trusted_headers.h"
++#endif
++
+ namespace network {
+ namespace {
+ 
+@@ -245,6 +249,9 @@ void WebSocket::WebSocketEventHandler::OnAddChannelResponse(
+   impl_->handshake_client_.reset();
+   impl_->auth_handler_.reset();
+   impl_->header_client_.reset();
++#if BUILDFLAG(MICROSOFT_ENABLE_TENANT_RESTRICTIONS)
++  impl_->edge_trusted_headers_.reset();
++#endif
+   impl_->client_.set_disconnect_handler(base::BindOnce(
+       &WebSocket::OnConnectionError, base::Unretained(impl_), FROM_HERE));
+ }
+@@ -394,6 +401,9 @@ WebSocket::WebSocket(
+     mojo::PendingRemote<mojom::WebSocketHandshakeClient> handshake_client,
+     mojo::PendingRemote<mojom::AuthenticationHandler> auth_handler,
+     mojo::PendingRemote<mojom::TrustedHeaderClient> header_client,
++#if BUILDFLAG(MICROSOFT_ENABLE_TENANT_RESTRICTIONS)
++    std::unique_ptr<edge::AdjustTrustedHeaders> edge_trusted_headers,
++#endif
+     WebSocketThrottler::PendingConnection pending_connection_tracker,
+     DataPipeUseTracker data_pipe_use_tracker,
+     base::TimeDelta delay)
+@@ -401,6 +411,9 @@ WebSocket::WebSocket(
+       handshake_client_(std::move(handshake_client)),
+       auth_handler_(std::move(auth_handler)),
+       header_client_(std::move(header_client)),
++#if BUILDFLAG(MICROSOFT_ENABLE_TENANT_RESTRICTIONS)
++      edge_trusted_headers_(std::move(edge_trusted_headers)),
++#endif
+       pending_connection_tracker_(std::move(pending_connection_tracker)),
+       delay_(delay),
+       options_(options),
+@@ -533,6 +546,9 @@ int WebSocket::OnBeforeStartTransaction(net::CompletionOnceCallback callback,
+                                  std::move(callback), headers));
+     return net::ERR_IO_PENDING;
+   }
++#if BUILDFLAG(MICROSOFT_ENABLE_TENANT_RESTRICTIONS)
++  AdjustHeadersIfNeeded(headers);
++#endif
+   return net::OK;
+ }
+ 
+@@ -820,6 +836,24 @@ void WebSocket::OnAuthRequiredComplete(
+   std::move(callback).Run(credentials ? &*credentials : nullptr);
+ }
+ 
++#if BUILDFLAG(MICROSOFT_ENABLE_TENANT_RESTRICTIONS)
++
++void WebSocket::AdjustHeadersIfNeeded(net::HttpRequestHeaders* out_headers) {
++  if (!channel_) {
++    // Something happened before the OnBeforeSendHeaders response arrives.
++    return;
++  }
++  if (edge_trusted_headers_) {
++    base::Optional<net::HttpRequestHeaders> modified_headers =
++        edge_trusted_headers_->OnBeforeSendHeaders(*out_headers);
++    if (modified_headers) {
++      *out_headers = modified_headers.value();
++    }
++  }
++}
++
++#endif
++
+ void WebSocket::OnBeforeSendHeadersComplete(
+     net::CompletionOnceCallback callback,
+     net::HttpRequestHeaders* out_headers,
+@@ -831,6 +865,9 @@ void WebSocket::OnBeforeSendHeadersComplete(
+   }
+   if (headers)
+     *out_headers = headers.value();
++#if BUILDFLAG(MICROSOFT_ENABLE_TENANT_RESTRICTIONS)
++  AdjustHeadersIfNeeded(out_headers);
++#endif
+   std::move(callback).Run(result);
+ }
+ 
+@@ -857,6 +894,9 @@ void WebSocket::Reset() {
+   client_.reset();
+   auth_handler_.reset();
+   header_client_.reset();
++#if BUILDFLAG(MICROSOFT_ENABLE_TENANT_RESTRICTIONS)
++  edge_trusted_headers_.reset();
++#endif
+   receiver_.reset();
+   data_pipe_use_tracker_.Reset();
+ 
+diff --git a/services/network/websocket.h b/services/network/websocket.h
+index 4d4f3ef8c08016a7e0c92f356beae897e6bb7422..d88705d885d91593bf72a6759f425e92bce72c46 100644
+--- a/services/network/websocket.h
++++ b/services/network/websocket.h
+@@ -20,6 +20,7 @@
+ #include "base/optional.h"
+ #include "base/time/time.h"
+ #include "base/util/type_safety/strong_alias.h"
++#include "microsoft/buildflags/buildflags.h"
+ #include "mojo/public/cpp/bindings/receiver.h"
+ #include "mojo/public/cpp/bindings/remote.h"
+ #include "net/websockets/websocket_event_interface.h"
+@@ -35,6 +36,12 @@ namespace base {
+ class Location;
+ }  // namespace base
+ 
++#if BUILDFLAG(MICROSOFT_ENABLE_TENANT_RESTRICTIONS)
++namespace edge {
++class AdjustTrustedHeaders;
++}  // namespace edge
++#endif
++
+ namespace net {
+ class IOBuffer;
+ class IsolationInfo;
+@@ -68,6 +75,9 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) WebSocket : public mojom::WebSocket {
+       mojo::PendingRemote<mojom::WebSocketHandshakeClient> handshake_client,
+       mojo::PendingRemote<mojom::AuthenticationHandler> auth_handler,
+       mojo::PendingRemote<mojom::TrustedHeaderClient> header_client,
++#if BUILDFLAG(MICROSOFT_ENABLE_TENANT_RESTRICTIONS)
++      std::unique_ptr<edge::AdjustTrustedHeaders> edge_trusted_headers,
++#endif
+       WebSocketThrottler::PendingConnection pending_connection_tracker,
+       DataPipeUseTracker,
+       base::TimeDelta delay);
+@@ -152,6 +162,9 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) WebSocket : public mojom::WebSocket {
+       net::HttpRequestHeaders* out_headers,
+       int result,
+       const base::Optional<net::HttpRequestHeaders>& headers);
++#if BUILDFLAG(MICROSOFT_ENABLE_TENANT_RESTRICTIONS)
++  void AdjustHeadersIfNeeded(net::HttpRequestHeaders* out_headers);
++#endif
+   void OnHeadersReceivedComplete(
+       net::CompletionOnceCallback callback,
+       scoped_refptr<net::HttpResponseHeaders>* out_headers,
+@@ -183,6 +196,10 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) WebSocket : public mojom::WebSocket {
+   mojo::Remote<mojom::AuthenticationHandler> auth_handler_;
+   mojo::Remote<mojom::TrustedHeaderClient> header_client_;
+ 
++#if BUILDFLAG(MICROSOFT_ENABLE_TENANT_RESTRICTIONS)
++  std::unique_ptr<edge::AdjustTrustedHeaders> edge_trusted_headers_;
++#endif
++
+   WebSocketThrottler::PendingConnection pending_connection_tracker_;
+ 
+   // The channel we use to send events to the network.
+diff --git a/services/network/websocket_factory.cc b/services/network/websocket_factory.cc
+index 597b4bcfdc6df42e851d0ae33fd95c2aa7ac5a65..92f80ee1b0c23447450440ea357a1860ade6bff9 100644
+--- a/services/network/websocket_factory.cc
++++ b/services/network/websocket_factory.cc
+@@ -15,6 +15,11 @@
+ #include "url/origin.h"
+ #include "url/url_constants.h"
+ 
++#if BUILDFLAG(MICROSOFT_ENABLE_TENANT_RESTRICTIONS)
++#include "microsoft/src/components/edge_adjust_headers/adjust_trusted_headers.h"
++#include "microsoft/src/components/edge_adjust_headers/adjust_trusted_headers_manager.h"
++#endif
++
+ namespace network {
+ 
+ WebSocketFactory::WebSocketFactory(NetworkContext* context)
+@@ -58,11 +63,20 @@ void WebSocketFactory::CreateWebSocket(
+   WebSocket::HasRawHeadersAccess has_raw_headers_access(
+       context_->network_service()->HasRawHeadersAccess(
+           process_id, net::ChangeWebSocketSchemeToHttpScheme(url)));
++#if BUILDFLAG(MICROSOFT_ENABLE_TENANT_RESTRICTIONS)
++  std::unique_ptr<edge::AdjustTrustedHeaders> adjust_headers =
++      context_->network_service()
++          ->edge_headers_manager()
++          ->MakeCallbackForRequest(context_, url);
++#endif
+   connections_.insert(std::make_unique<WebSocket>(
+       this, url, requested_protocols, site_for_cookies, isolation_info,
+       std::move(additional_headers), process_id, render_frame_id, origin,
+       options, has_raw_headers_access, std::move(handshake_client),
+       std::move(auth_handler), std::move(header_client),
++#if BUILDFLAG(MICROSOFT_ENABLE_TENANT_RESTRICTIONS)
++      std::move(adjust_headers),
++#endif
+       throttler_.IssuePendingConnectionTracker(process_id),
+       DataPipeUseTracker(context_->network_service(), DataPipeUser::kWebSocket),
+       throttler_.CalculateDelay(process_id)));

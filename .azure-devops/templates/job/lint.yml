@@ -1,0 +1,88 @@
+# Runs various linters against Electron and Microsoft code.
+
+parameters:
+  platform: ''  # {'linux', 'mac', 'windows'}
+  _electronLinters:
+  - args: --cc
+    name: Lint C++ code
+  - args: --gn
+    name: Lint gn files
+  - args: --js
+    name: Lint JavaScript code
+  - args: --objc
+    name: Lint Objective-C code
+  - args: --patches
+    name: Lint patches
+  - args: --py
+    name: Lint Python scripts
+  _workingDirectory: $(Build.BinariesDirectory)
+
+jobs:
+- job: lint_on_${{ parameters.platform }}
+  displayName: Lint
+  timeoutInMinutes: 90
+  pool:
+    ${{ if eq(parameters.platform, 'mac') }}:
+      vmImage: macOS-10.14
+    ${{ if eq(parameters.platform, 'linux') }}:
+      vmImage: ubuntu-18.04
+    ${{ if eq(parameters.platform, 'windows') }}:
+      # Hosted agents don't have enough disk space.
+      name: Electron Windows
+  steps:
+  - template: ../action/setup_agent.yml
+    parameters:
+      platform: ${{ parameters.platform }}
+      ${{ if eq(parameters.platform, 'windows') }}:
+        usePython: false
+
+  - template: ../action/checkout_electron.yml
+    parameters:
+      # Let's turn some things off to speed up checkout.
+      gclientCustomVars: >-
+        checkout_arm=False
+        checkout_arm64=False
+        download_external_binaries=False
+        microsoft_add_custom_ffmpeg_configs=False
+        microsoft_download_external_binaries=False
+      platform: ${{ parameters.platform }}
+      saveGclientConfig: false
+      workingDirectory: ${{ parameters._workingDirectory }}
+
+  - task: Npm@1
+    inputs:
+      command: install
+      workingDir: ${{ parameters._workingDirectory }}/src/microsoft
+
+  - template: ../action/install_python_deps.yml
+
+  # clang-format looks for a config file in all parent dirs of a given file.
+  # To use the Electron config (in "src/electron/") instead of the Chromium
+  # config (in "src/") for Microsoft files the former has to be copied
+  # to "src/microsoft/".
+  - task: CopyFiles@2
+    displayName: "Copy the Electron's .clang-format file"
+    inputs:
+      contents: .clang-format
+      sourceFolder: ${{ parameters._workingDirectory }}/src/electron
+      targetFolder: ${{ parameters._workingDirectory }}/src/microsoft
+
+  - ${{ each linter in parameters._electronLinters }}:
+    - script: node script/lint.js ${{ linter.args }}
+      displayName: ${{ linter.name }}
+      condition: true  # Always run all linters.
+      workingDirectory: ${{ parameters._workingDirectory }}/src/electron
+      env:
+        # It is needed to find a `gn` executable.
+        CHROMIUM_BUILDTOOLS_PATH: ${{ parameters._workingDirectory }}/src/buildtools
+      failOnStderr: ${{ coalesce(linter.failOnStderr, true) }}
+
+  - script: npm run remark
+    displayName: Lint Markdown files
+    workingDirectory: ${{ parameters._workingDirectory }}/src/microsoft
+    condition: true  # Always run all linters.
+
+  - template: azure-devops-templates/steps/yamllint.yml@SkypeSpaces-Infra
+    parameters:
+      condition: true  # Always run all linters.
+      workingDirectory: ${{ parameters._workingDirectory }}/src/microsoft

@@ -1,0 +1,18 @@
+# Wait for all previously triggered builds on Azure Pipelines.
+# Requires access to the "Electron" variable group.
+
+parameters:
+  condition: ''
+  displayName: Wait for all triggered builds
+  parameters: {}
+
+steps:
+- task: benjhuser.tfs-extensions-build-tasks.wait-for-build-task.WaitForBuildToFinish@2
+  displayName: ${{ parameters.displayName }}
+  ${{ if ne(parameters.condition, '') }}:
+    condition: ${{ parameters.condition }}
+  inputs:
+    authenticationMethod: Personal Access Token
+    password: '$(DomoreexpBuildTriggerPat)'
+    waitForQueuedBuildsToFinishRefreshTime: 300  # 5 minutes
+    ${{ insert }}: ${{ parameters.parameters }}

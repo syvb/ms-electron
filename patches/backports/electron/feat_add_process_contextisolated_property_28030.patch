@@ -1,0 +1,110 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Milan Burda <miburda@microsoft.com>
+Date: Mon, 8 Mar 2021 21:53:22 +0100
+Subject: feat: add process.contextIsolated property (#28030)
+
+Backport:
+- https://github.com/electron/electron/pull/28030
+- https://github.com/electron/electron/pull/28259
+
+diff --git a/docs/api/process.md b/docs/api/process.md
+index 728773c6f83cfeaa4e0da07a38c8548de8923ef0..62fa3c671384e3234f9c6316b6d32c48037585b8 100644
+--- a/docs/api/process.md
++++ b/docs/api/process.md
+@@ -28,6 +28,7 @@ In sandboxed renderers the `process` object contains only a subset of the APIs:
+ - `arch`
+ - `platform`
+ - `sandboxed`
++- `contextIsolated`
+ - `type`
+ - `version`
+ - `versions`
+@@ -92,6 +93,11 @@ A `String` representing the path to the resources directory.
+ A `Boolean`. When the renderer process is sandboxed, this property is `true`,
+ otherwise it is `undefined`.
+ 
++### `process.contextIsolated` _Readonly_
++
++A `Boolean` that indicates whether the current renderer context has `contextIsolation` enabled.
++It is `undefined` in the main process.
++
+ ### `process.throwDeprecation`
+ 
+ A `Boolean` that controls whether or not deprecation warnings will be thrown as
+diff --git a/shell/renderer/electron_renderer_client.cc b/shell/renderer/electron_renderer_client.cc
+index 37c310380d08ef988746520a32a46bd4640b866d..63b6722e00966084f8f643faa9666f4b2eae2a2a 100644
+--- a/shell/renderer/electron_renderer_client.cc
++++ b/shell/renderer/electron_renderer_client.cc
+@@ -139,6 +139,7 @@ void ElectronRendererClient::DidCreateScriptContext(
+   AddRenderBindings(env->isolate(), env->process_object());
+   gin_helper::Dictionary process_dict(env->isolate(), env->process_object());
+   process_dict.SetReadOnly("isMainFrame", render_frame->IsMainFrame());
++  process_dict.SetReadOnly("contextIsolated", isolated_world());
+ 
+   // Load everything.
+   node_bindings_->LoadEnvironment(env);
+diff --git a/shell/renderer/electron_sandboxed_renderer_client.cc b/shell/renderer/electron_sandboxed_renderer_client.cc
+index 963e6e173e3082e0109d5a42ea38103cbef5ae74..157eea11eb1ec1ed2024c3f27239d89180465b78 100644
+--- a/shell/renderer/electron_sandboxed_renderer_client.cc
++++ b/shell/renderer/electron_sandboxed_renderer_client.cc
+@@ -141,6 +141,7 @@ void ElectronSandboxedRendererClient::InitializeBindings(
+   process.SetReadOnly("sandboxed", true);
+   process.SetReadOnly("type", "renderer");
+   process.SetReadOnly("isMainFrame", is_main_frame);
++  process.SetReadOnly("contextIsolated", isolated_world());
+ }
+ 
+ void ElectronSandboxedRendererClient::RenderFrameCreated(
+diff --git a/spec-main/api-browser-window-spec.ts b/spec-main/api-browser-window-spec.ts
+index fa898ce6695899fc745e94d446ecfd82159ebe1d..66646f240e97907a67045356b243c56ebbef702e 100644
+--- a/spec-main/api-browser-window-spec.ts
++++ b/spec-main/api-browser-window-spec.ts
+@@ -2495,6 +2495,7 @@ describe('BrowserWindow module', () => {
+         expect(test.env).to.deep.equal(process.env);
+         expect(test.execPath).to.equal(process.helperExecPath);
+         expect(test.sandboxed).to.be.true('sandboxed');
++        expect(test.contextIsolated).to.be.false('contextIsolated');
+         expect(test.type).to.equal('renderer');
+         expect(test.version).to.equal(process.version);
+         expect(test.versions).to.deep.equal(process.versions);
+@@ -4282,6 +4283,19 @@ describe('BrowserWindow module', () => {
+       const [, data] = await p;
+       expect(data.pageContext.openedLocation).to.equal('about:blank');
+     });
++    it('reports process.contextIsolated', async () => {
++      const iw = new BrowserWindow({
++        show: false,
++        webPreferences: {
++          contextIsolation: true,
++          preload: path.join(fixtures, 'api', 'isolated-process.js')
++        }
++      });
++      const p = emittedOnce(ipcMain, 'context-isolation');
++      iw.loadURL('about:blank');
++      const [, contextIsolation] = await p;
++      expect(contextIsolation).to.be.true('contextIsolation');
++    });
+   });
+ 
+   describe('reloading with allowRendererProcessReuse enabled', () => {
+diff --git a/spec-main/fixtures/module/preload-sandbox.js b/spec-main/fixtures/module/preload-sandbox.js
+index 3a44fba74e1caa2d4ddf3c1b85940aa710cc2b6d..1a7f2d34e5dbfac746c5c3dadcbedc87473e3ac9 100644
+--- a/spec-main/fixtures/module/preload-sandbox.js
++++ b/spec-main/fixtures/module/preload-sandbox.js
+@@ -39,6 +39,7 @@
+         arch: process.arch,
+         platform: process.platform,
+         sandboxed: process.sandboxed,
++        contextIsolated: process.contextIsolated,
+         type: process.type,
+         version: process.version,
+         versions: process.versions,
+diff --git a/spec/fixtures/api/isolated-process.js b/spec/fixtures/api/isolated-process.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..d5e949ded56fd1e8debaac6c3259c7d2fbe5144f
+--- /dev/null
++++ b/spec/fixtures/api/isolated-process.js
+@@ -0,0 +1,3 @@
++const { ipcRenderer } = require('electron');
++
++ipcRenderer.send('context-isolation', process.contextIsolated);

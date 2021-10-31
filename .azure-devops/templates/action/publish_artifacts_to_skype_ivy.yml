@@ -1,0 +1,43 @@
+# Generates ivy module xml file from 'artifactsDir' directory contents
+# and uses this file to publish files from the directory into Skype IVY
+# storage.
+# It is expected 'ANT_HOME' or 'antHomeDir' points to 'skype-ant' version
+# of ant.
+
+parameters:
+  antHomeDir: './skype-ant'
+  artifactsDir: ''
+  baseDir: '.'
+  branchBuildId: ''
+  branchName: ''
+  condition: succeeded()  # A custom condition for the task.
+  ivyFilePath: ''
+  moduleName: ''
+
+steps:
+- script: >
+    node $(Build.SourcesDirectory)/scripts/generate_ivy_module_for_folder.js
+    --team-name=electron
+    --branch-name=${{ parameters.branchName }}
+    --module-name=${{ parameters.moduleName }}
+    --input-folder=${{ parameters.artifactsDir }}
+    --output-file=${{ parameters.ivyFilePath }}
+  workingDirectory: ${{ parameters.baseDir }}
+  displayName: IVY module XML file for ${{ parameters.moduleName }}
+
+- task: Ant@1
+  displayName: 'Ant publish of ${{ parameters.moduleName }} to Skype IVY'
+  condition: ${{ parameters.condition }}
+  inputs:
+    buildFile: $(Build.SourcesDirectory)/scripts/ivy/buildscript/build.xml
+    targets: 'publish-artifacts'  # 'info' for testing
+    publishJUnitResults: false
+    antHomeDirectory: ${{ parameters.antHomeDir }}
+    options: >
+      -Dvsts.bearer=
+      -Dname=${{ parameters.moduleName }}
+      -Dbranch=${{ parameters.branchName }}
+      -Dversion=${{ parameters.branchBuildId }}
+      -Dbasedir=${{ parameters.baseDir }}
+      -Dartifacts.dir=${{ parameters.artifactsDir }}
+      -Divy.file.path=${{ parameters.ivyFilePath }}

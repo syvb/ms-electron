@@ -1,0 +1,138 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Milan Burda <miburda@microsoft.com>
+Date: Wed, 1 Jul 2020 22:41:41 +0200
+Subject: feat: add name to app.getAppMetrics() output (#24359)
+
+Backport: https://github.com/electron/electron/pull/24359
+
+diff --git a/docs/api/structures/process-metric.md b/docs/api/structures/process-metric.md
+index bd5a349def623e10e20c1b94414eb6f5b0960119..446051716daa6d4b68334b9e2e92e697be43f5bf 100644
+--- a/docs/api/structures/process-metric.md
++++ b/docs/api/structures/process-metric.md
+@@ -11,6 +11,8 @@
+   * `Pepper Plugin`
+   * `Pepper Plugin Broker`
+   * `Unknown`
++* `name` String (optional) - The name of the process. i.e. for plugins it might be Flash.
++    Examples for utility: `Audio Service`, `Content Decryption Module Service`, `Network Service`, `Video Capture`, etc.
+ * `cpu` [CPUUsage](cpu-usage.md) - CPU usage of the process.
+ * `creationTime` Number - Creation time for this process.
+     The time is represented as number of milliseconds since epoch.
+diff --git a/shell/browser/api/electron_api_app.cc b/shell/browser/api/electron_api_app.cc
+index bf26d87fe2761d1b3aed9cb2256b3846501b699f..db5cd80f3b9c0c61cfff1731f36a054f74c1ca1d 100644
+--- a/shell/browser/api/electron_api_app.cc
++++ b/shell/browser/api/electron_api_app.cc
+@@ -785,7 +785,8 @@ void App::OnGpuProcessCrashed(base::TerminationStatus status) {
+ 
+ void App::BrowserChildProcessLaunchedAndConnected(
+     const content::ChildProcessData& data) {
+-  ChildProcessLaunched(data.process_type, data.GetProcess().Handle());
++  ChildProcessLaunched(data.process_type, data.GetProcess().Handle(),
++                       base::UTF16ToUTF8(data.name));
+ }
+ 
+ void App::BrowserChildProcessHostDisconnected(
+@@ -825,7 +826,9 @@ void App::RenderProcessDisconnected(base::ProcessId host_pid) {
+   ChildProcessDisconnected(host_pid);
+ }
+ 
+-void App::ChildProcessLaunched(int process_type, base::ProcessHandle handle) {
++void App::ChildProcessLaunched(int process_type,
++                               base::ProcessHandle handle,
++                               const std::string& name) {
+   auto pid = base::GetProcId(handle);
+ 
+ #if defined(OS_MACOSX)
+@@ -835,7 +838,7 @@ void App::ChildProcessLaunched(int process_type, base::ProcessHandle handle) {
+   auto metrics = base::ProcessMetrics::CreateProcessMetrics(handle);
+ #endif
+   app_metrics_[pid] = std::make_unique<electron::ProcessMetric>(
+-      process_type, handle, std::move(metrics));
++      process_type, handle, std::move(metrics), name);
+ }
+ 
+ void App::ChildProcessDisconnected(base::ProcessId pid) {
+@@ -1276,6 +1279,10 @@ std::vector<gin_helper::Dictionary> App::GetAppMetrics(v8::Isolate* isolate) {
+     pid_dict.Set("creationTime",
+                  process_metric.second->process.CreationTime().ToJsTime());
+ 
++    if (!process_metric.second->name.empty()) {
++      pid_dict.Set("name", process_metric.second->name);
++    }
++
+ #if !defined(OS_LINUX)
+     auto memory_info = process_metric.second->GetMemoryInfo();
+ 
+diff --git a/shell/browser/api/electron_api_app.h b/shell/browser/api/electron_api_app.h
+index 52380508039e6d371d122b5ddb73080ec8ab276e..0eea3ed9d176964094c631044bc641c91bbdaf24 100644
+--- a/shell/browser/api/electron_api_app.h
++++ b/shell/browser/api/electron_api_app.h
+@@ -157,7 +157,9 @@ class App : public ElectronBrowserClient::Delegate,
+ 
+  private:
+   void SetAppPath(const base::FilePath& app_path);
+-  void ChildProcessLaunched(int process_type, base::ProcessHandle handle);
++  void ChildProcessLaunched(int process_type,
++                            base::ProcessHandle handle,
++                            const std::string& name = std::string());
+   void ChildProcessDisconnected(base::ProcessId pid);
+ 
+   void SetAppLogsPath(gin_helper::ErrorThrower thrower,
+diff --git a/shell/browser/api/process_metric.cc b/shell/browser/api/process_metric.cc
+index c2f845f6caa8c15995ec3fa55770e455207e7bdd..f5f096dc341c0975dca5351039fc1f5c3a91879c 100644
+--- a/shell/browser/api/process_metric.cc
++++ b/shell/browser/api/process_metric.cc
+@@ -52,9 +52,11 @@ namespace electron {
+ 
+ ProcessMetric::ProcessMetric(int type,
+                              base::ProcessHandle handle,
+-                             std::unique_ptr<base::ProcessMetrics> metrics) {
++                             std::unique_ptr<base::ProcessMetrics> metrics,
++                             const std::string& name) {
+   this->type = type;
+   this->metrics = std::move(metrics);
++  this->name = name;
+ 
+ #if defined(OS_WIN)
+   HANDLE duplicate_handle = INVALID_HANDLE_VALUE;
+diff --git a/shell/browser/api/process_metric.h b/shell/browser/api/process_metric.h
+index 2f60ac0a82b6ca349846d9b2723359e13351658e..2cbeba88ab5787aca61ca40f2ba3764f167b07c7 100644
+--- a/shell/browser/api/process_metric.h
++++ b/shell/browser/api/process_metric.h
+@@ -6,6 +6,7 @@
+ #define SHELL_BROWSER_API_PROCESS_METRIC_H_
+ 
+ #include <memory>
++#include <string>
+ 
+ #include "base/process/process.h"
+ #include "base/process/process_handle.h"
+@@ -37,10 +38,12 @@ struct ProcessMetric {
+   int type;
+   base::Process process;
+   std::unique_ptr<base::ProcessMetrics> metrics;
++  std::string name;
+ 
+   ProcessMetric(int type,
+                 base::ProcessHandle handle,
+-                std::unique_ptr<base::ProcessMetrics> metrics);
++                std::unique_ptr<base::ProcessMetrics> metrics,
++                const std::string& name = std::string());
+   ~ProcessMetric();
+ 
+ #if !defined(OS_LINUX)
+diff --git a/spec-main/api-app-spec.ts b/spec-main/api-app-spec.ts
+index 80b3bc780b92e86ddb17edc1ae2629d4f2a79abe..57ecbb6a2f0f129afe1befc0fdc58050769457a5 100644
+--- a/spec-main/api-app-spec.ts
++++ b/spec-main/api-app-spec.ts
+@@ -1077,6 +1077,10 @@ describe('app module', () => {
+         expect(entry.memory).to.have.property('workingSetSize').that.is.greaterThan(0);
+         expect(entry.memory).to.have.property('peakWorkingSetSize').that.is.greaterThan(0);
+ 
++        if (entry.type === 'Utility') {
++          expect(entry).to.have.property('name').that.is.a('string');
++        }
++
+         if (process.platform === 'win32') {
+           expect(entry.memory).to.have.property('privateBytes').that.is.greaterThan(0);
+         }

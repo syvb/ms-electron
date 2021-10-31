@@ -1,0 +1,36 @@
+parameters:
+- name: buildId
+  type: string
+- name: chromiumVersion
+  type: string
+  default: ''
+- name: electronVersion
+  type: string
+- name: flavour
+  type: string
+- name: nodejsVersion
+  type: string
+  default: ''
+
+steps:
+- template: tag_build.yml
+  parameters:
+    tag: 'build@${{ parameters.buildId }}'
+
+- ${{ if ne(parameters.chromiumVersion, '') }}:
+  - template: tag_build.yml
+    parameters:
+      tag: 'chromium@${{ parameters.chromiumVersion }}'
+
+- template: tag_build.yml
+  parameters:
+    tag: 'electron@${{ parameters.electronVersion }}'
+
+- template: tag_build.yml
+  parameters:
+    tag: 'flavour@${{ parameters.flavour }}'
+
+- ${{ if ne(parameters.nodejsVersion, '') }}:
+  - template: tag_build.yml
+    parameters:
+      tag: 'nodejs@${{ parameters.nodejsVersion }}'

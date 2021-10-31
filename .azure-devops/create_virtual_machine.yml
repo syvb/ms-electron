@@ -1,0 +1,21 @@
+# https://domoreexp.visualstudio.com/Teamspace/_build?definitionId=2855
+#
+# Create a virtual machine under our Azure subscription.
+
+trigger: none
+
+parameters:
+- name: name
+  displayName: A new virtual machine name
+  type: string
+- name: platform
+  displayName: The virtual machine platform
+  type: string
+  values: ['linux', 'windows']
+  default: windows
+
+jobs:
+- template: templates/job/create_virtual_machine.yml
+  parameters:
+    name: ${{ parameters.name }}
+    platform: ${{ parameters.platform }}

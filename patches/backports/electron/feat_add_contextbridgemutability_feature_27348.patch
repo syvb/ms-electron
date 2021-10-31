@@ -1,0 +1,161 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Nikita Kot <nikitakot@microsoft.com>
+Date: Mon, 22 Mar 2021 18:16:35 +0100
+Subject: feat: add ContextBridgeMutability feature (#27348)
+
+Backport: https://github.com/electron/electron/pull/27348
+
+diff --git a/shell/renderer/api/electron_api_context_bridge.cc b/shell/renderer/api/electron_api_context_bridge.cc
+index 1aa50d1797e30e66648229db22300e36387e04b1..5d5502642d09acfe96578113ad2ae1d301a7c130 100644
+--- a/shell/renderer/api/electron_api_context_bridge.cc
++++ b/shell/renderer/api/electron_api_context_bridge.cc
+@@ -11,6 +11,7 @@
+ #include <utility>
+ #include <vector>
+ 
++#include "base/feature_list.h"
+ #include "base/no_destructor.h"
+ #include "base/strings/string_number_conversions.h"
+ #include "content/public/renderer/render_frame.h"
+@@ -24,6 +25,12 @@
+ #include "shell/common/world_ids.h"
+ #include "third_party/blink/public/web/web_local_frame.h"
+ 
++namespace features {
++
++const base::Feature kContextBridgeMutability{"ContextBridgeMutability",
++                                             base::FEATURE_DISABLED_BY_DEFAULT};
++}
++
+ namespace electron {
+ 
+ namespace api {
+@@ -548,6 +555,12 @@ void ExposeAPIInMainWorld(v8::Isolate* isolate,
+     if (maybe_proxy.IsEmpty())
+       return;
+     auto proxy = maybe_proxy.ToLocalChecked();
++
++    if (base::FeatureList::IsEnabled(features::kContextBridgeMutability)) {
++      global.Set(key, proxy);
++      return;
++    }
++
+     if (proxy->IsObject() && !proxy->IsTypedArray() &&
+         !DeepFreeze(v8::Local<v8::Object>::Cast(proxy), main_context))
+       return;
+diff --git a/spec-main/api-context-bridge-spec.ts b/spec-main/api-context-bridge-spec.ts
+index 4f01d89e5f879a8658524ccf39b6080a20d7e624..f7c2b062ea433484a584a16190fe6e90ba90da97 100644
+--- a/spec-main/api-context-bridge-spec.ts
++++ b/spec-main/api-context-bridge-spec.ts
+@@ -5,6 +5,7 @@ import * as fs from 'fs-extra';
+ import * as http from 'http';
+ import * as os from 'os';
+ import * as path from 'path';
++import * as cp from 'child_process';
+ 
+ import { closeWindow } from './window-helpers';
+ import { emittedOnce } from './events-helpers';
+@@ -1126,3 +1127,31 @@ describe('contextBridge', () => {
+   generateTests(true);
+   generateTests(false);
+ });
++
++describe('ContextBridgeMutability', () => {
++  it('should not make properties unwriteable and read-only if ContextBridgeMutability is on', async () => {
++    const appPath = path.join(fixturesPath, 'context-bridge-mutability');
++    const appProcess = cp.spawn(process.execPath, ['--enable-logging', '--enable-features=ContextBridgeMutability', appPath]);
++
++    let output = '';
++    appProcess.stdout.on('data', data => { output += data; });
++    await emittedOnce(appProcess, 'exit');
++
++    expect(output).to.include('some-modified-text');
++    expect(output).to.include('obj-modified-prop');
++    expect(output).to.include('1,2,5,3,4');
++  });
++
++  it('should make properties unwriteable and read-only if ContextBridgeMutability is off', async () => {
++    const appPath = path.join(fixturesPath, 'context-bridge-mutability');
++    const appProcess = cp.spawn(process.execPath, ['--enable-logging', appPath]);
++
++    let output = '';
++    appProcess.stdout.on('data', data => { output += data; });
++    await emittedOnce(appProcess, 'exit');
++
++    expect(output).to.include('some-text');
++    expect(output).to.include('obj-prop');
++    expect(output).to.include('1,2,3,4');
++  });
++});
+diff --git a/spec-main/fixtures/api/context-bridge/context-bridge-mutability/index.html b/spec-main/fixtures/api/context-bridge/context-bridge-mutability/index.html
+new file mode 100644
+index 0000000000000000000000000000000000000000..980a3d7f32c3015fe3a448a5904f8d6b8aa01ea3
+--- /dev/null
++++ b/spec-main/fixtures/api/context-bridge/context-bridge-mutability/index.html
+@@ -0,0 +1,17 @@
++<!DOCTYPE html>
++<html lang="en">
++
++<body>
++    <script>
++        try {
++            window.str = 'some-modified-text';
++            window.obj.prop = 'obj-modified-prop';
++            window.arr.splice(2, 0, 5);
++        } catch (e) { }
++        console.log(window.str);
++        console.log(window.obj.prop);
++        console.log(window.arr);
++    </script>
++</body>
++
++</html>
+\ No newline at end of file
+diff --git a/spec-main/fixtures/api/context-bridge/context-bridge-mutability/main.js b/spec-main/fixtures/api/context-bridge/context-bridge-mutability/main.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..622ef6acbf9c43de6568ff656f64b8694b28f5cd
+--- /dev/null
++++ b/spec-main/fixtures/api/context-bridge/context-bridge-mutability/main.js
+@@ -0,0 +1,20 @@
++const { app, BrowserWindow } = require('electron');
++const path = require('path');
++
++let win;
++app.whenReady().then(function () {
++  win = new BrowserWindow({
++    webPreferences: {
++      contextIsolation: true,
++      preload: path.join(__dirname, 'preload.js')
++    }
++  });
++
++  win.loadFile('index.html');
++
++  win.webContents.on('console-message', (event, level, message) => {
++    console.log(message);
++  });
++
++  win.webContents.on('did-finish-load', () => app.quit());
++});
+diff --git a/spec-main/fixtures/api/context-bridge/context-bridge-mutability/package.json b/spec-main/fixtures/api/context-bridge/context-bridge-mutability/package.json
+new file mode 100644
+index 0000000000000000000000000000000000000000..d1fc13838e5fe96621af4159dfc464fc8c76db5c
+--- /dev/null
++++ b/spec-main/fixtures/api/context-bridge/context-bridge-mutability/package.json
+@@ -0,0 +1,4 @@
++{
++    "name": "context-bridge-mutability",
++    "main": "main.js"
++}
+\ No newline at end of file
+diff --git a/spec-main/fixtures/api/context-bridge/context-bridge-mutability/preload.js b/spec-main/fixtures/api/context-bridge/context-bridge-mutability/preload.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..e3d3d9abfad5b538752e81d16479e3af0261be00
+--- /dev/null
++++ b/spec-main/fixtures/api/context-bridge/context-bridge-mutability/preload.js
+@@ -0,0 +1,5 @@
++const { contextBridge, ipcRenderer } = require('electron');
++
++contextBridge.exposeInMainWorld('str', 'some-text');
++contextBridge.exposeInMainWorld('obj', { prop: 'obj-prop' });
++contextBridge.exposeInMainWorld('arr', [1, 2, 3, 4]);

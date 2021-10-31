@@ -1,0 +1,15 @@
+# https://domoreexp.visualstudio.com/Teamspace/_build?definitionId=2626
+
+trigger: none
+
+schedules:
+- cron: '0 1 * * *'  # At 1am every day.
+  displayName: Mirror external repos
+  branches:
+    include:
+    - master
+    - release/*
+  always: true
+
+jobs:
+- template: templates/job/mirror_external_repos.yml

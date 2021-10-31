@@ -1,0 +1,327 @@
+# A cross-platform Electron release build.
+
+parameters:
+  arch: ''  # {'arm64', 'x64', 'x86'}
+  flavour: ''
+  platform: ''  # {'linux', 'mac', 'mas', 'windows'}
+  _buildDirectory: default
+  _buildType: release
+  _workingDirectory: $(Build.BinariesDirectory)
+
+jobs:
+- template: ../executor/builder.yml
+  parameters:
+    # We use the same job ids as for regular Electron builds
+    # so any dependent jobs could use any of the two.
+    jobId: build_electron_${{ parameters.platform }}_${{ parameters.arch }}
+    displayName: Electron release ${{ parameters.platform }} ${{ parameters.arch }}
+    platform: ${{ parameters.platform }}
+    timeoutInMinutes: 360
+    steps:
+    - template: ../action/checkout_electron.yml
+      parameters:
+        gitCacheDirectory: $(Electron.Executor.GitCacheDirectory)
+        platform: ${{ parameters.platform }}
+        workingDirectory: ${{ parameters._workingDirectory }}
+
+    - template: ../action/gn_gen.yml
+      parameters:
+        arch: ${{ parameters.arch }}
+        args: microsoft_build_version="\"$(Build.BuildId)\""
+        buildDirectory: out/${{ parameters._buildDirectory }}
+        buildType: ${{ parameters._buildType }}
+        flavour: ${{ parameters.flavour }}
+        ${{ if eq(parameters.platform, 'mas') }}:
+          mas: true
+        srcDirectory: ${{ parameters._workingDirectory }}/src
+
+    - template: ../action/set_variable.yml
+      parameters:
+        name: Electron.Local.BuildDirectory
+        value: ${{ parameters._workingDirectory }}/src/out/${{ parameters._buildDirectory }}
+
+    # Electron
+    - template: ../action/ninja.yml
+      parameters:
+        buildDirectory: $(Electron.Local.BuildDirectory)
+        displayName: Build an Electron binary
+        target: electron
+
+    - ${{ if eq(parameters.platform, 'linux') }}:
+      # TODO(alkuzmin): Include debugging info for Node.js
+      - task: PythonScript@0
+        displayName: Create a debugging info archive
+        inputs:
+          scriptSource: filePath
+          scriptPath: ${{ parameters._workingDirectory }}/src/microsoft/scripts/create_debugging_info_archive.py
+          arguments: >
+            --file $(Electron.Local.BuildDirectory)/electron
+            --zip-path $(Build.ArtifactStagingDirectory)/electron-dbg.zip
+          failOnStderr: true
+
+      - template: ../action/assert_file_size.yml
+        parameters:
+          displayName: Check the debugging info archive size
+          filePath: $(Build.ArtifactStagingDirectory)/electron-dbg.zip
+          sizeAtLeast: 600  # MB
+
+      # (alkuzmin): Stripping has to be done before we create an Electron archive.
+      - template: ../action/strip_linux_binary.yml
+        parameters:
+          arch: ${{ parameters.arch }}
+          directory: out/${{ parameters._buildDirectory }}
+          srcDirectory: ${{ parameters._workingDirectory }}/src
+
+    - template: ../action/ninja.yml
+      parameters:
+        buildDirectory: $(Electron.Local.BuildDirectory)
+        displayName: Create an Electron archive
+        target: electron:electron_dist_zip
+
+    - template: ../action/copy_artifact.yml
+      parameters:
+        checkFileSizeAtLeast: 50  # MB
+        file: dist.zip
+        sourceFolder: $(Electron.Local.BuildDirectory)
+
+    - ${{ if eq(parameters.platform, 'windows') }}:
+      # We will need the library to build native Node.js modules on Windows.
+      - template: ../action/copy_artifact.yml
+        parameters:
+          checkFileSizeAtLeast: 0.5  # MB
+          file: electron.lib
+          sourceFolder: $(Electron.Local.BuildDirectory)
+
+    - ${{ if eq(parameters.platform, 'windows') }}:
+      # Toolchain profile
+      - template: ../action/export_toolchain_profile.yml
+        parameters:
+          outputDirectory: $(Build.ArtifactStagingDirectory)
+          srcDirectory: ${{ parameters._workingDirectory }}/src
+
+    # v8windbg
+    - ${{ if eq(parameters.platform, 'windows') }}:
+      - template: ../action/ninja.yml
+        parameters:
+          buildDirectory: $(Electron.Local.BuildDirectory)
+          displayName: Build v8windbg.dll
+          target: v8windbg
+
+      - template: ../action/copy_artifact.yml
+        parameters:
+          file: v8windbg.dll
+          sourceFolder: $(Electron.Local.BuildDirectory)
+
+    # Hunspell dictionaries
+    - template: ../action/ninja.yml
+      parameters:
+        buildDirectory: $(Electron.Local.BuildDirectory)
+        displayName: Build Hunspell dictionaries
+        target: electron:hunspell_dictionaries_zip
+
+    - template: ../action/copy_artifact.yml
+      parameters:
+        checkFileSizeAtLeast: 20  # MB
+        file: hunspell_dictionaries.zip
+        sourceFolder: $(Electron.Local.BuildDirectory)
+
+    # ChromeDriver
+    - template: ../action/ninja.yml
+      parameters:
+        buildDirectory: $(Electron.Local.BuildDirectory)
+        displayName: Build a ChromeDriver binary
+        target: chrome/test/chromedriver
+
+    - ${{ if eq(parameters.platform, 'linux') }}:
+      - template: ../action/strip_linux_binary.yml
+        parameters:
+          arch: ${{ parameters.arch }}
+          file: out/${{ parameters._buildDirectory }}/chromedriver
+          srcDirectory: ${{ parameters._workingDirectory }}/src
+
+    - template: ../action/ninja.yml
+      parameters:
+        buildDirectory: $(Electron.Local.BuildDirectory)
+        displayName: Create a ChromeDriver archive
+        target: electron:electron_chromedriver_zip
+
+    - template: ../action/copy_artifact.yml
+      parameters:
+        checkFileSizeAtLeast: 8  # MB
+        file: chromedriver.zip
+        sourceFolder: $(Electron.Local.BuildDirectory)
+
+    # mksnapshot
+    - template: ../action/ninja.yml
+      parameters:
+        buildDirectory: $(Electron.Local.BuildDirectory)
+        displayName: Build a mksnapshot binary
+        target: electron:electron_mksnapshot
+
+    # TODO(alkuzmin): Strip ARM and ARM64 binaries.
+    - ${{ if and(eq(parameters.platform, 'linux'), eq(parameters.arch, 'x64')) }}:
+      - template: ../action/strip_linux_binary.yml
+        parameters:
+          arch: ${{ parameters.arch }}
+          ${{ if eq(parameters.arch, 'arm') }}:
+            file: out/${{ parameters._buildDirectory }}/clang_x86_v8_arm/mksnapshot
+          ${{ if eq(parameters.arch, 'arm64') }}:
+            file: out/${{ parameters._buildDirectory }}/clang_x64_v8_arm64/mksnapshot
+          ${{ if in(parameters.arch, 'x64', 'x86') }}:
+            file: out/${{ parameters._buildDirectory }}/mksnapshot
+          srcDirectory: ${{ parameters._workingDirectory }}/src
+
+      - template: ../action/strip_linux_binary.yml
+        parameters:
+          arch: ${{ parameters.arch }}
+          file: out/${{ parameters._buildDirectory }}/v8_context_snapshot_generator
+          srcDirectory: ${{ parameters._workingDirectory }}/src
+
+    - template: ../action/ninja.yml
+      parameters:
+        buildDirectory: $(Electron.Local.BuildDirectory)
+        displayName: Create an mksnapshot archive
+        target: electron:electron_mksnapshot_zip
+
+    - template: ../action/copy_artifact.yml
+      parameters:
+        checkFileSizeAtLeast: 30  # MB
+        file: mksnapshot.zip
+        sourceFolder: $(Electron.Local.BuildDirectory)
+
+    # Symbols-related stuff
+    - ${{ if eq(parameters.platform, 'windows') }}:
+      # (alkuzmin): Without this library symbols generation fails for Windows x86 builds.
+      # https://domoreexp.visualstudio.com/MSTeams/_workitems/edit/481485
+      - task: PythonScript@0
+        displayName: '[HACK] Copy msdia*.dll'
+        inputs:
+          scriptSource: filePath
+          scriptPath: ${{ parameters._workingDirectory }}/src/microsoft/scripts/copy_msdia_library.py
+          arguments: --arch ${{ parameters.arch }}
+          failOnStderr: true
+          workingDirectory: ${{ parameters._workingDirectory }}/src
+
+      # The msdia*.dll location has to be in the PATH.
+      - template: ../action/add_to_path.yml
+        parameters:
+          name: msdia*.dll
+          directory: ${{ parameters._workingDirectory }}/src/third_party/llvm-build/Release+Asserts/bin
+          platform: ${{ parameters.platform }}
+
+    - ${{ if in(parameters.platform, 'linux', 'mac', 'mas') }}:
+      - template: ../action/ninja.yml
+        parameters:
+          buildDirectory: $(Electron.Local.BuildDirectory)
+          displayName: Build minidump_stackwalk
+          target: minidump_stackwalk
+
+      - template: ../action/copy_artifact.yml
+        parameters:
+          file: minidump_stackwalk
+          sourceFolder: $(Electron.Local.BuildDirectory)
+
+    - template: ../action/ninja.yml
+      parameters:
+        buildDirectory: $(Electron.Local.BuildDirectory)
+        displayName: Generate breakpad symbols
+        target: electron:electron_symbols
+
+    # dump_syms tool has been built in "electron:electron_symbols" target
+    # Available only on Intel 64bit arch.
+    - ${{ if eq(parameters.arch, 'x64') }}:
+      - ${{ if eq(parameters.platform, 'linux') }}:
+        - template: ../action/strip_linux_binary.yml
+          parameters:
+            arch: ${{ parameters.arch }}
+            file: out/${{ parameters._buildDirectory }}/dump_syms
+            srcDirectory: ${{ parameters._workingDirectory }}/src
+
+      - task: ArchiveFiles@2
+        displayName: Create a dump_syms archive
+        inputs:
+          ${{ if in(parameters.platform, 'linux', 'mac', 'mas') }}:
+            rootFolderOrFile: $(Electron.Local.BuildDirectory)/dump_syms
+          ${{ if eq(parameters.platform, 'windows') }}:
+            rootFolderOrFile: $(Electron.Local.BuildDirectory)/dump_syms.exe
+          includeRootFolder: false
+          archiveType: zip
+          archiveFile: $(Electron.Local.BuildDirectory)/dump_syms.zip
+
+      - template: ../action/copy_artifact.yml
+        parameters:
+          checkFileSizeAtLeast: 0.01  # MB
+          file: dump_syms.zip
+          sourceFolder: $(Electron.Local.BuildDirectory)
+
+    # Symbol archives
+    - task: PythonScript@0
+      displayName: Create symbols archives
+      inputs:
+        scriptSource: filePath
+        scriptPath: ${{ parameters._workingDirectory }}/src/electron/script/zip-symbols.py
+        arguments: >
+          --build-dir $(Electron.Local.BuildDirectory)
+        failOnStderr: true
+
+    - template: ../action/copy_artifact.yml
+      parameters:
+        ${{ if eq(parameters.platform, 'linux') }}:
+          checkFileSizeAtLeast: 0.5  # MB
+        ${{ if or(in(parameters.platform, 'mac', 'mas'), eq(parameters.platform, 'windows')) }}:
+          checkFileSizeAtLeast: 20  # MB
+        file: symbols.zip
+        sourceFolder: $(Electron.Local.BuildDirectory)
+
+    - ${{ if in(parameters.platform, 'mac', 'mas') }}:
+      - template: ../action/copy_artifact.yml
+        parameters:
+          checkFileSizeAtLeast: 1000  # MB
+          file: dsym.zip
+          sourceFolder: $(Electron.Local.BuildDirectory)
+
+    - ${{ if eq(parameters.platform, 'windows') }}:
+      - template: ../action/copy_artifact.yml
+        parameters:
+          checkFileSizeAtLeast: 450  # MB
+          file: pdb.zip
+          sourceFolder: $(Electron.Local.BuildDirectory)
+
+    - template: ../action/build_typescript_definitions.yml
+      parameters:
+        srcDirectory: ${{ parameters._workingDirectory }}/src
+
+    - template: ../action/build_node_headers.yml
+      parameters:
+        buildDirectory: $(Electron.Local.BuildDirectory)
+
+    # Native Node.js modules for tests.
+    - template: ../action/build_spec_modules.yml
+      parameters:
+        arch: ${{ parameters.arch }}
+        buildDirectory: ${{ parameters._buildDirectory }}
+        platform: ${{ parameters.platform }}
+        srcDirectory: ${{ parameters._workingDirectory }}/src
+
+    # Various data files.
+    - template: ../action/copy_artifact.yml
+      parameters:
+        file: ELECTRON_VERSION
+        sourceFolder: ${{ parameters._workingDirectory }}/src/electron
+
+    - template: ../action/write_to_file.yml
+      parameters:
+        displayName: Write build flavour to a file in the artifacts staging directory
+        filePath: $(Build.ArtifactStagingDirectory)/flavour.txt
+        text: ${{ parameters.flavour }}
+
+    - template: ../action/write_to_file.yml
+      parameters:
+        displayName: Write Git revision to a file in the artifacts staging directory
+        filePath: $(Build.ArtifactStagingDirectory)/revision.txt
+        text: $(Build.SourceVersion)
+
+    - publish: $(Build.ArtifactStagingDirectory)
+      # We use the same naming template as for regular Electron builds
+      # so any dependent jobs could use any of the two.
+      artifact: 'electron ${{ parameters.platform }} ${{ parameters.arch }}'

@@ -1,0 +1,29 @@
+# Chromium flags
+ffmpeg_branding = "Microsoft"
+media_use_libvpx = false
+use_allocator = "none"
+
+# Electron flags
+enable_osr = false
+enable_pepper_flash = false
+enable_remote_module = false
+enable_run_as_node = false
+
+# Microsoft flags
+microsoft_add_build_version_to_process_versions = true
+microsoft_chromium_video_renderer = true
+microsoft_cors_skip_preflight = true
+microsoft_enable_app_center = true
+microsoft_enable_code_location_in_v8_heap_snapshot = false
+microsoft_enable_cpu_profiler = true
+microsoft_enable_crashreporter_api = true
+microsoft_enable_exclude_from_screen_sharing = true
+microsoft_enable_mac_a11y = true
+microsoft_enable_memory_usage_api = true
+microsoft_enable_move_behind_taskbar = false
+microsoft_enable_remote_host = true
+microsoft_enable_startup_metrics = true
+microsoft_enable_tenant_restrictions = true
+microsoft_enable_watchdog = true
+microsoft_enable_wer_api = true
+microsoft_fix_screen_reader_detection = true

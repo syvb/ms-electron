@@ -1,0 +1,112 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: nikitakot <nikitakot@microsoft.com>
+Date: Wed, 25 Nov 2020 16:18:31 +0100
+Subject: feat: temporary hack electron api context bridge
+
+Microsoft patch
+
+diff --git a/lib/renderer/api/context-bridge.ts b/lib/renderer/api/context-bridge.ts
+index 32831229e7f9316e681edcdf12298ebd8bceb852..0e208acfb5e632a36b1b75f76b514da066bead92 100644
+--- a/lib/renderer/api/context-bridge.ts
++++ b/lib/renderer/api/context-bridge.ts
+@@ -4,7 +4,7 @@ const binding = process.electronBinding('context_bridge');
+ const contextIsolationEnabled = hasSwitch('context-isolation');
+ 
+ const checkContextIsolationEnabled = () => {
+-  if (!contextIsolationEnabled) throw new Error('contextBridge API can only be used when contextIsolation is enabled');
++  if (!contextIsolationEnabled) console.log('ContextBridge: checkContextIsolationEnabled is temporary disabled. Running in the main world.');
+ };
+ 
+ const contextBridge: Electron.ContextBridge = {
+diff --git a/shell/renderer/api/electron_api_context_bridge.cc b/shell/renderer/api/electron_api_context_bridge.cc
+index 5d5502642d09acfe96578113ad2ae1d301a7c130..d661eff5aea18f5585b1fedcd3ab5a0ca211d610 100644
+--- a/shell/renderer/api/electron_api_context_bridge.cc
++++ b/shell/renderer/api/electron_api_context_bridge.cc
+@@ -11,6 +11,7 @@
+ #include <utility>
+ #include <vector>
+ 
++#include "base/command_line.h"
+ #include "base/feature_list.h"
+ #include "base/no_destructor.h"
+ #include "base/strings/string_number_conversions.h"
+@@ -22,6 +23,7 @@
+ #include "shell/common/gin_helper/dictionary.h"
+ #include "shell/common/gin_helper/promise.h"
+ #include "shell/common/node_includes.h"
++#include "shell/common/options_switches.h"
+ #include "shell/common/world_ids.h"
+ #include "third_party/blink/public/web/web_local_frame.h"
+ 
+@@ -543,8 +545,16 @@ void ExposeAPIInMainWorld(v8::Isolate* isolate,
+     return;
+   }
+ 
+-  v8::Local<v8::Context> isolated_context =
+-      frame->WorldScriptContext(args->isolate(), WorldIDs::ISOLATED_WORLD_ID);
++  bool context_isolation_enabled =
++      base::CommandLine::ForCurrentProcess()->HasSwitch(
++          switches::kContextIsolation);
++  v8::Local<v8::Context> isolated_context;
++  if (context_isolation_enabled) {
++    isolated_context =
++        frame->WorldScriptContext(args->isolate(), WorldIDs::ISOLATED_WORLD_ID);
++  } else {
++    isolated_context = main_context;
++  }
+ 
+   {
+     context_bridge::ObjectCache object_cache;
+diff --git a/spec-main/api-context-bridge-spec.ts b/spec-main/api-context-bridge-spec.ts
+index f7c2b062ea433484a584a16190fe6e90ba90da97..ed600680894d53a0e74eb5db985bbe46b153509f 100644
+--- a/spec-main/api-context-bridge-spec.ts
++++ b/spec-main/api-context-bridge-spec.ts
+@@ -36,7 +36,7 @@ describe('contextBridge', () => {
+     if (dir) await fs.remove(dir);
+   });
+ 
+-  it('should not be accessible when contextIsolation is disabled', async () => {
++  it('should be accessible when contextIsolation is disabled', async () => {
+     w = new BrowserWindow({
+       show: false,
+       webPreferences: {
+@@ -45,7 +45,7 @@ describe('contextBridge', () => {
+       }
+     });
+     const [, bound] = await emittedOnce(ipcMain, 'context-bridge-bound', () => w.loadFile(path.resolve(fixturesPath, 'empty.html')));
+-    expect(bound).to.equal(false);
++    expect(bound).to.equal(true);
+   });
+ 
+   it('should be accessible when contextIsolation is enabled', async () => {
+@@ -60,8 +60,8 @@ describe('contextBridge', () => {
+     expect(bound).to.equal(true);
+   });
+ 
+-  const generateTests = (useSandbox: boolean) => {
+-    describe(`with sandbox=${useSandbox}`, () => {
++  const generateTests = (useSandbox: boolean, useContextIsolation = true) => {
++    describe(`with sandbox=${useSandbox} useContextIsolation=${useContextIsolation}`, () => {
+       const makeBindingWindow = async (bindingCreator: Function) => {
+         const preloadContent = `const renderer_1 = require('electron');
+         ${useSandbox ? '' : `require('v8').setFlagsFromString('--expose_gc');
+@@ -76,7 +76,7 @@ describe('contextBridge', () => {
+         w = new BrowserWindow({
+           show: false,
+           webPreferences: {
+-            contextIsolation: true,
++            contextIsolation: useContextIsolation,
+             nodeIntegration: true,
+             sandbox: useSandbox,
+             preload: path.resolve(tmpDir, 'preload.js'),
+@@ -1124,8 +1124,8 @@ describe('contextBridge', () => {
+     });
+   };
+ 
+-  generateTests(true);
+-  generateTests(false);
++  generateTests(true, false);
++  generateTests(false, false);
+ });
+ 
+ describe('ContextBridgeMutability', () => {

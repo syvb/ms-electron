@@ -1,0 +1,57 @@
+# Checkout the internal Electron without Chromium.
+# It won't be possible to use the resulting tree to run a build.
+
+parameters:
+  checkoutSelf: true  # Set to false if it's already checked out.
+  gitCacheDirectory: None  # A directory path or "None" to disable the cache.
+  platform: ''  # {'linux', 'mac', 'mas', 'windows'}
+  runHooks: true  # If gclient hooks should be run.
+  workingDirectory: ''  # A full path to a checkout root directory.
+  _repoPath: src/microsoft  # Relative to the working directory above.
+
+steps:
+- ${{ if eq(parameters.checkoutSelf, 'true') }}:
+  - template: checkout_self.yml
+
+- template: get_depot_tools.yml
+  parameters:
+    platform: ${{ parameters.platform }}
+
+- task: CopyFiles@2
+  displayName: Copy repo to ${{ parameters._repoPath }}
+  inputs:
+    targetFolder: ${{ parameters.workingDirectory }}/${{ parameters._repoPath }}
+    cleanTargetFolder: true
+
+- task: PythonScript@0
+  displayName: Create a gclient config
+  inputs:
+    scriptSource: filePath
+    scriptPath: ${{ parameters.workingDirectory }}/${{ parameters._repoPath }}/scripts/gclient_config.py
+    arguments: >
+      --cache-dir ${{ parameters.gitCacheDirectory }}
+      --custom-var
+      checkout_chromium=False
+      download_external_binaries=False
+      microsoft_add_custom_ffmpeg_configs=False
+      microsoft_download_external_binaries=False
+      microsoft_use_internal_chromium=False
+      --print
+    failOnStderr: false
+    workingDirectory: ${{ parameters.workingDirectory }}
+
+# Gclient is going to write to "gclient_args.gni" file after processing all deps.
+# It will fail if the file doesn't exist. Let's help it not to fail.
+- task: PythonScript@0
+  displayName: '[HACK] Create gclient_args.gni'
+  inputs:
+    scriptSource: filePath
+    scriptPath: ${{ parameters.workingDirectory }}/${{ parameters._repoPath }}/scripts/touch.py
+    arguments: ${{ parameters.workingDirectory }}/src/build/config/gclient_args.gni
+    failOnStderr: true
+
+- template: gclient_sync.yml
+  parameters:
+    platform: ${{ parameters.platform }}
+    runHooks: ${{ parameters.runHooks }}
+    workingDirectory: ${{ parameters.workingDirectory }}

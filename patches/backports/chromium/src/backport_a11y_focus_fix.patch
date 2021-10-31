@@ -1,0 +1,114 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Julie Koubova <jkoubova@microsoft.com>
+Date: Thu, 29 Oct 2020 16:57:17 +0100
+Subject: backport: a11y focus fix
+
+https://chromium.googlesource.com/chromium/src/+/e1ec154666b2fdeab0cbee3ec31f1d3fbea43770
+
+diff --git a/content/browser/accessibility/browser_accessibility_manager.cc b/content/browser/accessibility/browser_accessibility_manager.cc
+index 739a19d13eb6027322b36a595e812b7b6b0fe85f..a64214f8e7941092dda2ffe3c35ea4c08a7e9d2c 100644
+--- a/content/browser/accessibility/browser_accessibility_manager.cc
++++ b/content/browser/accessibility/browser_accessibility_manager.cc
+@@ -693,8 +693,7 @@ void BrowserAccessibilityManager::SetFocus(const BrowserAccessibility& node) {
+   ui::AXActionData action_data;
+   action_data.action = ax::mojom::Action::kFocus;
+   action_data.target_node_id = node.GetId();
+-  if (!delegate_->AccessibilityViewHasFocus())
+-    delegate_->AccessibilityViewSetFocus();
++  delegate_->AccessibilityViewSetFocus();
+   delegate_->AccessibilityPerformAction(action_data);
+ }
+ 
+diff --git a/content/browser/frame_host/cross_process_frame_connector.cc b/content/browser/frame_host/cross_process_frame_connector.cc
+index 385b190c5bfda91750dc2a8257436fcda140b105..d878fced2d18aa03d0a07bdd4e7f9703eafc1d54 100644
+--- a/content/browser/frame_host/cross_process_frame_connector.cc
++++ b/content/browser/frame_host/cross_process_frame_connector.cc
+@@ -29,21 +29,6 @@
+ 
+ namespace content {
+ 
+-namespace {
+-
+-// Return the root RenderFrameHost in the outermost WebContents.
+-RenderFrameHostImpl* RootRenderFrameHost(RenderFrameHostImpl* frame) {
+-  RenderFrameHostImpl* current = frame;
+-  while (true) {
+-    RenderFrameHostImpl* parent = current->ParentOrOuterDelegateFrame();
+-    if (!parent)
+-      return current;
+-    current = parent;
+-  };
+-}
+-
+-}  // namespace
+-
+ CrossProcessFrameConnector::CrossProcessFrameConnector(
+     RenderFrameProxyHost* frame_proxy_in_parent_renderer)
+     : FrameConnectorDelegate(IsUseZoomForDSFEnabled()),
+@@ -55,7 +40,8 @@ CrossProcessFrameConnector::CrossProcessFrameConnector(
+   // GetScreenInfo() on the root RenderWidgetHost, which will be guaranteed to
+   // be on the correct display. All subsequent updates to |screen_info_|
+   // ultimately come from the root, so it makes sense to do it here as well.
+-  RootRenderFrameHost(current_child_frame_host())
++  current_child_frame_host()
++      ->GetOutermostMainFrame()
+       ->GetRenderWidgetHost()
+       ->GetScreenInfo(&screen_info_);
+ }
+@@ -388,7 +374,7 @@ CrossProcessFrameConnector::GetRootRenderWidgetHostView() {
+   if (!frame_proxy_in_parent_renderer_)
+     return nullptr;
+ 
+-  RenderFrameHostImpl* root = RootRenderFrameHost(current_child_frame_host());
++  RenderFrameHostImpl* root = current_child_frame_host()->GetOutermostMainFrame();
+   return static_cast<RenderWidgetHostViewBase*>(root->GetView());
+ }
+ 
+diff --git a/content/browser/frame_host/frame_tree.cc b/content/browser/frame_host/frame_tree.cc
+index 8a21369714a69c68c495dc02d0fe31bb6020bb7c..ac37dda7530520d08a627dda65af364c6017f268 100644
+--- a/content/browser/frame_host/frame_tree.cc
++++ b/content/browser/frame_host/frame_tree.cc
+@@ -377,7 +377,7 @@ void FrameTree::SetFocusedFrame(FrameTreeNode* node, SiteInstance* source) {
+   // The accessibility tree data for the root of the frame tree keeps
+   // track of the focused frame too, so update that every time the
+   // focused frame changes.
+-  root()->current_frame_host()->UpdateAXTreeData();
++  root()->current_frame_host()->GetOutermostMainFrame()->UpdateAXTreeData();
+ }
+ 
+ void FrameTree::SetFrameRemoveListener(
+diff --git a/content/browser/frame_host/render_frame_host_impl.cc b/content/browser/frame_host/render_frame_host_impl.cc
+index ab54a32a17f29e9b5ea9365e92de563737a1e513..e1dac32efa5d2ed027d9bdfedf29412a038d9f70 100644
+--- a/content/browser/frame_host/render_frame_host_impl.cc
++++ b/content/browser/frame_host/render_frame_host_impl.cc
+@@ -9013,6 +9013,16 @@ RenderFrameHostImpl* RenderFrameHostImpl::ParentOrOuterDelegateFrame() {
+   return nullptr;
+ }
+ 
++RenderFrameHostImpl* RenderFrameHostImpl::GetOutermostMainFrame() {
++  RenderFrameHostImpl* current = this;
++  while (true) {
++    RenderFrameHostImpl* parent = current->ParentOrOuterDelegateFrame();
++    if (!parent)
++      return current;
++    current = parent;
++  };
++}
++
+ scoped_refptr<WebAuthRequestSecurityChecker>
+ RenderFrameHostImpl::GetWebAuthRequestSecurityChecker() {
+   if (!webauth_request_security_checker_)
+diff --git a/content/browser/frame_host/render_frame_host_impl.h b/content/browser/frame_host/render_frame_host_impl.h
+index d2af86857f56495c8a07681cac2e5a776dcd92e5..b816b2537a0084f034d33ff5585d78632fd0893a 100644
+--- a/content/browser/frame_host/render_frame_host_impl.h
++++ b/content/browser/frame_host/render_frame_host_impl.h
+@@ -1495,6 +1495,9 @@ class CONTENT_EXPORT RenderFrameHostImpl
+   // WebContents.
+   RenderFrameHostImpl* ParentOrOuterDelegateFrame();
+ 
++  // Returns the global root RenderFrameHostImpl in the outermost WebContents.
++  RenderFrameHostImpl* GetOutermostMainFrame();
++
+   void SetIsOuterDelegateFrame(bool is_outer_frame) {
+     is_outer_delegate_frame_ = is_outer_frame;
+   }

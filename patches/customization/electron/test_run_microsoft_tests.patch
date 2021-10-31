@@ -1,0 +1,33 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Aleksei Kuzmin <alkuzmin@microsoft.com>
+Date: Thu, 4 Jun 2020 02:37:13 +0200
+Subject: test: run Microsoft tests
+
+Microsoft patch
+
+diff --git a/spec-main/index.js b/spec-main/index.js
+index c2ab15717c79ad32cc51bdd85ab21ef27e71ddd5..e79c0727022e70e8007e22cd521148816f49a51b 100644
+--- a/spec-main/index.js
++++ b/spec-main/index.js
+@@ -99,6 +99,8 @@ app.whenReady().then(async () => {
+ 
+   const getFiles = require('../spec/static/get-files');
+   const testFiles = await getFiles(__dirname, { filter });
++  const microsoftSpecMainDir = path.join(__dirname, '..', '..', 'microsoft', 'src', 'electron', 'spec-main');
++  testFiles.unshift(...await getFiles(microsoftSpecMainDir, { filter }));
+   testFiles.sort().forEach((file) => {
+     mocha.addFile(file);
+   });
+diff --git a/spec/static/index.html b/spec/static/index.html
+index 9497bbcf8b20ebab2f11a9317a633831a42ecbb9..d902cb8438b1cc929dcd3654c62ca2c6aa887a6b 100644
+--- a/spec/static/index.html
++++ b/spec/static/index.html
+@@ -82,6 +82,8 @@
+ 
+   const getFiles = require('./get-files')
+   const testFiles = await getFiles(path.dirname(__dirname), { filter })
++  const microsoftSpecDir = path.join(__dirname, '..', '..', '..', 'microsoft', 'src', 'electron', 'spec')
++  testFiles.unshift(...await getFiles(microsoftSpecDir, { filter }))
+   testFiles.sort().forEach((file) => {
+     mocha.addFile(file)
+   })

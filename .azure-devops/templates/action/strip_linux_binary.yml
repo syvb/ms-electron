@@ -1,0 +1,27 @@
+# Strip a binary or a predefined list of binaries in a specified build directory.
+
+parameters:
+  arch: ''  # {'arm', 'arm64', 'x64', 'x86'}
+  directory: ''  # A directory where to strip binaries (relative to the "//src" directory, e.g. "out/release").
+  file:  # A file path to a binary to strip (relative to the "//src", e.g. "out/release/libffmpeg.so").
+  srcDirectory: ''  # A full path to the "//src" directory.
+
+steps:
+- task: PythonScript@0
+  ${{ if eq(parameters.directory, '') }}:
+    displayName: Strip ${{ parameters.file }} binary
+  ${{ if ne(parameters.directory, '') }}:
+    displayName: Strip binaries in ${{ parameters.directory }}
+  inputs:
+    scriptSource: filePath
+    scriptPath: ${{ parameters.srcDirectory }}/electron/script/strip-binaries.py
+    ${{ if eq(parameters.directory, '') }}:
+      arguments: >
+        --file ${{ parameters.srcDirectory }}/${{ parameters.file }}
+        --target-cpu ${{ parameters.arch }}
+    ${{ if ne(parameters.directory, '') }}:
+      arguments: >
+        --directory ${{ parameters.srcDirectory }}/${{ parameters.directory }}
+        --target-cpu ${{ parameters.arch }}
+    workingDirectory: ${{ parameters.srcDirectory }}
+    failOnStderr: true

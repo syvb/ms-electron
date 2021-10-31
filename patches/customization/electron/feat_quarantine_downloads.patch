@@ -1,0 +1,91 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Andrey Belenko <andrey.belenko@gmail.com>
+Date: Mon, 12 Apr 2021 22:18:06 +0200
+Subject: feat: Quarantine downloads
+
+Enable Chromium quarantine functionality for downloads.
+
+diff --git a/shell/browser/electron_download_manager_delegate.cc b/shell/browser/electron_download_manager_delegate.cc
+index 0b10309b69dc36c47446b83bf8b363ab3dd03a74..aec0b49e155fd0d450679da07f37b03d938edbba 100644
+--- a/shell/browser/electron_download_manager_delegate.cc
++++ b/shell/browser/electron_download_manager_delegate.cc
+@@ -4,6 +4,7 @@
+ 
+ #include "shell/browser/electron_download_manager_delegate.h"
+ 
++#include <memory>
+ #include <string>
+ #include <utility>
+ 
+@@ -13,10 +14,14 @@
+ #include "chrome/common/pref_names.h"
+ #include "components/download/public/common/download_danger_type.h"
+ #include "components/prefs/pref_service.h"
++#include "components/services/quarantine/public/mojom/quarantine.mojom.h"
++#include "components/services/quarantine/quarantine_impl.h"
+ #include "content/public/browser/browser_context.h"
+ #include "content/public/browser/browser_thread.h"
+ #include "content/public/browser/download_item_utils.h"
+ #include "content/public/browser/download_manager.h"
++#include "content/public/browser/service_process_host.h"
++#include "mojo/public/cpp/bindings/self_owned_receiver.h"
+ #include "net/base/filename_util.h"
+ #include "shell/browser/api/electron_api_download_item.h"
+ #include "shell/browser/electron_browser_context.h"
+@@ -27,6 +32,10 @@
+ #include "shell/common/gin_converters/file_path_converter.h"
+ #include "shell/common/options_switches.h"
+ 
++#if defined(OS_WIN)
++#include "components/services/quarantine/public/cpp/quarantine_features_win.h"
++#endif
++
+ namespace electron {
+ 
+ namespace {
+@@ -59,6 +68,22 @@ base::FilePath CreateDownloadPath(const GURL& url,
+   return download_path.Append(generated_name);
+ }
+ 
++void ConnectToQuarantineService(
++    mojo::PendingReceiver<quarantine::mojom::Quarantine> receiver) {
++#if defined(OS_WIN)
++  if (base::FeatureList::IsEnabled(quarantine::kOutOfProcessQuarantine)) {
++    content::ServiceProcessHost::Launch(
++        std::move(receiver), content::ServiceProcessHost::Options()
++                                 .WithDisplayName("Quarantine Service")
++                                 .Pass());
++    return;
++  }
++#endif
++
++  mojo::MakeSelfOwnedReceiver(std::make_unique<quarantine::QuarantineImpl>(),
++                              std::move(receiver));
++}
++
+ }  // namespace
+ 
+ ElectronDownloadManagerDelegate::ElectronDownloadManagerDelegate(
+@@ -249,4 +274,9 @@ void ElectronDownloadManagerDelegate::GetNextId(
+   std::move(callback).Run(next_id++);
+ }
+ 
++download::QuarantineConnectionCallback
++ElectronDownloadManagerDelegate::GetQuarantineConnectionCallback() {
++  return base::BindRepeating(&ConnectToQuarantineService);
++}
++
+ }  // namespace electron
+diff --git a/shell/browser/electron_download_manager_delegate.h b/shell/browser/electron_download_manager_delegate.h
+index c727371610beaaf0da621f7c8dbbdf96044f02f9..3e5d369c846b872b6944dff0ef4906bfbf1f1757 100644
+--- a/shell/browser/electron_download_manager_delegate.h
++++ b/shell/browser/electron_download_manager_delegate.h
+@@ -36,6 +36,8 @@ class ElectronDownloadManagerDelegate
+       download::DownloadItem* download,
+       content::DownloadOpenDelayedCallback callback) override;
+   void GetNextId(content::DownloadIdCallback callback) override;
++  download::QuarantineConnectionCallback GetQuarantineConnectionCallback()
++      override;
+ 
+  private:
+   // Get the save path set on the associated api::DownloadItem object

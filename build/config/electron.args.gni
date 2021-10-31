@@ -1,0 +1,6 @@
+# Chromium flags
+ffmpeg_branding = "Slim"
+
+# Microsoft flags
+microsoft_add_build_version_to_process_versions = true
+microsoft_enable_app_center = true

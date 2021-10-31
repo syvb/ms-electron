@@ -1,0 +1,69 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Aleksei Kuzmin <alkuzmin@microsoft.com>
+Date: Wed, 16 Jan 2019 10:43:29 +0100
+Subject: chore: lint Microsoft files
+
+Microsoft patch
+
+diff --git a/script/lint.js b/script/lint.js
+index b92d2d620bf54052c49eae87676aba18e5c78ad4..e341bd6a9d8042586a37c388cb266528e6f73037 100755
+--- a/script/lint.js
++++ b/script/lint.js
+@@ -53,7 +53,7 @@ function isObjCHeader (filename) {
+ 
+ const LINTERS = [{
+   key: 'c++',
+-  roots: ['shell'],
++  roots: ['shell', '../microsoft/src'],
+   test: filename => filename.endsWith('.cc') || (filename.endsWith('.h') && !isObjCHeader(filename)),
+   run: (opts, filenames) => {
+     if (opts.fix) {
+@@ -65,7 +65,7 @@ const LINTERS = [{
+   }
+ }, {
+   key: 'objc',
+-  roots: ['shell'],
++  roots: ['shell', '../microsoft/src'],
+   test: filename => filename.endsWith('.mm'),
+   run: (opts, filenames) => {
+     if (opts.fix) {
+@@ -83,7 +83,7 @@ const LINTERS = [{
+   }
+ }, {
+   key: 'python',
+-  roots: ['script'],
++  roots: ['script', '../microsoft/scripts'],
+   test: filename => filename.endsWith('.py'),
+   run: (opts, filenames) => {
+     const rcfile = path.join(DEPOT_TOOLS, 'pylintrc');
+@@ -93,18 +93,18 @@ const LINTERS = [{
+   }
+ }, {
+   key: 'javascript',
+-  roots: ['lib', 'spec', 'spec-main', 'script', 'default_app'],
++  roots: ['lib', 'spec', 'spec-main', 'script', 'default_app', '../microsoft/scripts', '../microsoft/src/electron/lib'],
+   ignoreRoots: ['spec/node_modules', 'spec-main/node_modules'],
+   test: filename => filename.endsWith('.js') || filename.endsWith('.ts'),
+   run: (opts, filenames) => {
+     const cmd = path.join(SOURCE_ROOT, 'node_modules', '.bin', 'eslint');
+-    const args = ['--cache', '--ext', '.js,.ts', ...filenames];
++    const args = ['--cache', '--ext', '.js,.ts', '--config', path.join(SOURCE_ROOT, '.eslintrc.json'), ...filenames];
+     if (opts.fix) args.unshift('--fix');
+     spawnAndCheckExitCode(cmd, args, { cwd: SOURCE_ROOT });
+   }
+ }, {
+   key: 'gn',
+-  roots: ['.'],
++  roots: ['.', '../microsoft'],
+   test: filename => filename.endsWith('.gn') || filename.endsWith('.gni'),
+   run: (opts, filenames) => {
+     const allOk = filenames.map(filename => {
+@@ -133,7 +133,7 @@ const LINTERS = [{
+   }
+ }, {
+   key: 'patches',
+-  roots: ['patches'],
++  roots: ['patches', '../microsoft/patches'],
+   test: () => true,
+   run: (opts, filenames) => {
+     const patchesDir = path.resolve(__dirname, '../patches');

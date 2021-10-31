@@ -1,0 +1,27 @@
+import("//build/buildflag_header.gni")
+import("//microsoft/buildflags/buildflags.gni")
+
+buildflag_header("buildflags") {
+  header = "buildflags.h"
+
+  flags = [
+    "MICROSOFT_ADD_BUILD_VERSION_TO_PROCESS_VERSIONS=$microsoft_add_build_version_to_process_versions",
+    "MICROSOFT_CHROMIUM_VIDEO_RENDERER=$microsoft_chromium_video_renderer",
+    "MICROSOFT_CORS_SKIP_PREFLIGHT=$microsoft_cors_skip_preflight",
+    "MICROSOFT_FIX_SCREEN_READER_DETECTION=$microsoft_fix_screen_reader_detection",
+    "MICROSOFT_ENABLE_APP_CENTER=$microsoft_enable_app_center",
+    "MICROSOFT_ENABLE_CODE_LOCATION_IN_V8_HEAP_SNAPSHOT=$microsoft_enable_code_location_in_v8_heap_snapshot",
+    "MICROSOFT_ENABLE_CPU_PROFILER=$microsoft_enable_cpu_profiler",
+    "MICROSOFT_ENABLE_CRASHREPORTER_API=$microsoft_enable_crashreporter_api",
+    "MICROSOFT_ENABLE_EXCLUDE_FROM_SCREEN_SHARING=$microsoft_enable_exclude_from_screen_sharing",
+    "MICROSOFT_ENABLE_ISO_KEYBOARD_KEY_MAPPING=$microsoft_enable_iso_keyboard_key_mapping",
+    "MICROSOFT_ENABLE_MAC_A11Y=$microsoft_enable_mac_a11y",
+    "MICROSOFT_ENABLE_MEMORY_USAGE_API=$microsoft_enable_memory_usage_api",
+    "MICROSOFT_ENABLE_MOVE_BEHIND_TASKBAR=$microsoft_enable_move_behind_taskbar",
+    "MICROSOFT_ENABLE_REMOTE_HOST=$microsoft_enable_remote_host",
+    "MICROSOFT_ENABLE_STARTUP_METRICS=$microsoft_enable_startup_metrics",
+    "MICROSOFT_ENABLE_TENANT_RESTRICTIONS=$microsoft_enable_tenant_restrictions",
+    "MICROSOFT_ENABLE_WATCHDOG=$microsoft_enable_watchdog",
+    "MICROSOFT_ENABLE_WER_API=$microsoft_enable_wer_api",
+  ]
+}

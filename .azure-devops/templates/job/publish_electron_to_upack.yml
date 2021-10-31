@@ -1,0 +1,128 @@
+# Publish Electron build artifacts to UPack Feed.
+# https://domoreexp.visualstudio.com/Teamspace/_packaging?_a=feed&feed=Electron
+
+parameters:
+  buildId: ''  # An id of a build that created Electron distribution. An empty string stands for the current build.
+  dryRun: false  # Do everything except the actual uploading.
+  _artifactsToDownload:
+  - electron linux arm
+  - electron linux arm64
+  - electron linux x64
+  - electron mac x64
+  - electron meta data
+  - electron windows arm64
+  - electron windows x64
+  - electron windows x86
+  # Platform and arches names must match the UPack publishing layout.
+  _electronToPublish:
+    lin: ['x64']  # TODO(alkuzmin): publish ARM and ARM64?
+    mac: ['x64']
+    win: ['arm64', 'ia32', 'x64']
+  _platform: linux
+  _stagingDirectory: $(Build.ArtifactStagingDirectory)
+  _workingDirectory: $(Build.BinariesDirectory)
+
+jobs:
+- job: publish_electron_to_upack
+  displayName: Publish Electron to UPack
+  pool:
+    vmImage: ubuntu-18.04
+  variables:
+  - group: Electron
+  steps:
+  - template: ../action/setup_agent.yml
+    parameters:
+      platform: ${{ parameters._platform }}
+
+  - template: ../action/checkout_self.yml
+
+  - ${{ each artifactName in parameters._artifactsToDownload }}:
+    - task: DownloadPipelineArtifact@0
+      displayName: Download ${{ artifactName }}
+      inputs:
+        pipelineId: ${{ parameters.buildId }}
+        artifactName: ${{ artifactName }}
+        targetPath: ${{ parameters._workingDirectory }}/${{ artifactName }}
+
+  - template: ../action/set_variable_from_file.yml
+    parameters:
+      filePath: '${{ parameters._workingDirectory }}/electron meta data/version.txt'
+      name: Electron.Local.Version
+      stepName: set_version_variable
+
+  - template: ../action/set_variable_from_file.yml
+    parameters:
+      filePath: '${{ parameters._workingDirectory }}/electron meta data/flavour.txt'
+      name: Electron.Local.Flavour
+      stepName: set_flavour_variable
+
+  # Version must be in a semantic version format.
+  - template: ../action/set_variable.yml
+    parameters:
+      name: Electron.Local.PackageVersion
+      value: '0.0.${{ parameters.buildId }}'
+
+  # Create a files' structure ready to be published.
+  - task: PythonScript@0
+    displayName: Prepare files for upload
+    inputs:
+      scriptSource: filePath
+      scriptPath: $(Build.SourcesDirectory)/scripts/create_publishing_layout.py
+      arguments: >
+        --config configs/publishing_layout/electron_upack.layout.json
+        --input-dir ${{ parameters._workingDirectory }}
+        --output-dir ${{ parameters._stagingDirectory }}
+      failOnStderr: true
+
+  # Publish Electron binaries.
+  - ${{ each platformAndArch in parameters._electronToPublish }}:
+    - ${{ each arch in platformAndArch.value }}:
+      - template: ../action/publish_artifacts_to_upack.yml
+        parameters:
+          ${{ if eq(parameters.dryRun, 'true') }}:
+            condition: false
+          displayName: Publish Electron ${{ platformAndArch.key }} ${{ arch }}
+          packageDescription: Electron v$(Electron.Local.Version)
+          packageDirectory: ${{ parameters._stagingDirectory }}/electron-${{ platformAndArch.key }}-${{ arch }}
+          # E.g. "electron-teams-v7.3.0-win-x64".
+          packageName: >-
+            electron-$(Electron.Local.Flavour)-v$(Electron.Local.Version)-${{ platformAndArch.key }}-${{ arch }}
+          packageVersion: $(Electron.Local.PackageVersion)
+
+      # Publish Node.js lib files on Windows.
+      - ${{ if eq(platformAndArch.key, 'win') }}:
+        - template: ../action/publish_artifacts_to_upack.yml
+          parameters:
+            ${{ if eq(parameters.dryRun, 'true') }}:
+              condition: false
+            displayName: Publish electron.lib ${{ arch }}
+            packageDescription: electron.lib (${{ arch }}) v$(Electron.Local.Version) for native Node.js modules
+            packageDirectory: ${{ parameters._stagingDirectory }}/electron-lib-${{ arch }}
+            # E.g. "electron-lib-teams-v7.3.0-win-x64".
+            packageName: >-
+              electron-lib-$(Electron.Local.Flavour)-v$(Electron.Local.Version)-${{ platformAndArch.key }}-${{ arch }}
+            packageVersion: $(Electron.Local.PackageVersion)
+
+  # Publish Node.js headers.
+  - template: ../action/publish_artifacts_to_upack.yml
+    parameters:
+      ${{ if eq(parameters.dryRun, 'true') }}:
+        condition: false
+      displayName: Publish Node.js headers
+      packageDescription: Node.js headers of Electron v$(Electron.Local.Version)
+      packageDirectory: ${{ parameters._stagingDirectory }}/node-headers
+      # E.g. "node-headers-teams-v7.3.0".
+      packageName: node-headers-$(Electron.Local.Flavour)-v$(Electron.Local.Version)
+      packageVersion: $(Electron.Local.PackageVersion)
+
+  # Publish TypeScript typings.
+  - template: ../action/publish_artifacts_to_upack.yml
+    parameters:
+      ${{ if eq(parameters.dryRun, 'true') }}:
+        condition: false
+      displayName: Publish TypeScript typings
+      packageDescription: Electron v$(Electron.Local.Version) TypeScript typings
+      packageDirectory: ${{ parameters._stagingDirectory }}/typings
+      # E.g. "typings-teams-v7.3.0".
+      packageName: typings-$(Electron.Local.Flavour)-v$(Electron.Local.Version)
+      packageVersion: $(Electron.Local.PackageVersion)

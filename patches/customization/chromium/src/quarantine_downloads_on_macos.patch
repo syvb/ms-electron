@@ -1,0 +1,35 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Andrey Belenko <anbelen@microsoft.com>
+Date: Thu, 2 Apr 2020 18:26:49 +0200
+Subject: Quarantine downloads on macOS
+
+Microsoft patch
+
+diff --git a/components/services/quarantine/quarantine_mac.mm b/components/services/quarantine/quarantine_mac.mm
+index 1673e9b358e95cde163bea6b35ade2e3e550fec0..d823554c56928f6cb61565e25de5d4fe705710b0 100644
+--- a/components/services/quarantine/quarantine_mac.mm
++++ b/components/services/quarantine/quarantine_mac.mm
+@@ -161,7 +161,22 @@ bool AddQuarantineMetadataToFile(const base::FilePath& file,
+     // (e.g., because the user has set up exclusions for certain file types).
+     // We don't want to add any metadata, because that will cause the file to
+     // be quarantined against the user's wishes.
+-    return true;
++    
++    // Code below adds support for Chromium embedders such as Electron.
++    // If LSFileQuarantineEnabled is present and enabled in the Info.plist
++    // then function will return if file is not quarantined at this point.
++    // Otherwise (if LSFileQuarantineEnabled is not set or not present)
++    // we will continue to set quarantine metadata.
++
++    bool quarantine_enabled = [base::mac::ObjCCast<NSNumber>(
++      [[NSBundle mainBundle]
++        objectForInfoDictionaryKey:@"LSFileQuarantineEnabled"]
++    ) boolValue];
++    
++    if (quarantine_enabled)
++      return true;
++    
++    properties.reset([[NSMutableDictionary alloc] init]);
+   }
+ 
+   // kLSQuarantineAgentNameKey, kLSQuarantineAgentBundleIdentifierKey, and

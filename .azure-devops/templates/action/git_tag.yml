@@ -1,0 +1,23 @@
+# Tag a Git revision.
+
+parameters:
+  displayName: Tag a Git revision
+  condition: succeeded()
+  continueOnError: true
+  push: false  # If the tag should be immediately pushed.
+  revision: ''  # A Git ref.
+  tag: ''  # A tag name.
+
+steps:
+- task: PythonScript@0
+  displayName: ${{ parameters.displayName }}
+  condition: ${{ parameters.condition }}
+  continueOnError: ${{ parameters.continueOnError }}
+  inputs:
+    scriptSource: filePath
+    scriptPath: scripts/git_tag.py
+    arguments: >
+      --revision ${{ parameters.revision }}
+      --tag ${{ parameters.tag }}
+      --push ${{ parameters.push }}
+    failOnStderr: false  # Git write some stuff to stderr.

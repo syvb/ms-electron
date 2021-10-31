@@ -1,0 +1,32 @@
+# Trigger a build on Azure Pipelines.
+# Requires access to the "Electron" variable group.
+#
+# Sets or updates a "TriggeredBuildIds" variable with a build id of the triggered build.
+# The variable value is a comma-separated list of all triggered build ids,
+# e.g. "3310263,3310264,3310265,3310266".
+
+parameters:
+  buildDefinitionName: ''  # A name, not an id. Required.
+  condition: ''
+  displayName: ''  # Optional.
+  variables: ''  # Optional list of build variables for the new build. JSON-like '"key": "value", [...]' format.
+
+steps:
+# https://marketplace.visualstudio.com/items?itemName=benjhuser.tfs-extensions-build-tasks
+- task: benjhuser.tfs-extensions-build-tasks.trigger-build-task.TriggerBuild@3
+  ${{ if eq(parameters.displayName, '') }}:
+    displayName: Trigger "${{ parameters.buildDefinitionName }}"
+  ${{ if ne(parameters.displayName, '') }}:
+    displayName: ${{ parameters.displayName }}
+  ${{ if ne(parameters.condition, '') }}:
+    condition: ${{ parameters.condition }}
+  inputs:
+    authenticationMethod: Personal Access Token
+    # The name must match a build definition name on Azure Pipelines.
+    # It would be much better to use an id but it seems to be not possible.
+    buildDefinition: ${{ parameters.buildDefinitionName }}
+    buildParameters: '${{ parameters.variables }}'
+    password: '$(DomoreexpBuildTriggerPat)'
+    queueBuildForUserThatTriggeredBuild: true
+    storeInEnvironmentVariable: true
+    useSameSourceVersion: true

@@ -1,0 +1,386 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Milan Burda <miburda@microsoft.com>
+Date: Mon, 20 May 2019 14:49:44 +0200
+Subject: feat: add process.getStartupMetrics()
+
+Microsoft patch
+
+diff --git a/docs/api/process.md b/docs/api/process.md
+index f741556bdc04c33d32036b9da7d4a70a9237fd7b..a5292754fc641d8d7f0f118cd7b98358c845d1f1 100644
+--- a/docs/api/process.md
++++ b/docs/api/process.md
+@@ -167,6 +167,21 @@ Returns [`CPUUsage`](structures/cpu-usage.md)
+ 
+ Returns [`IOCounters`](structures/io-counters.md)
+ 
++### `process.getStartupMetrics()`
++
++Returns `Object`:
++
++* `mainTimestamp` Double
++* `basicStartupComplete` Double
++* `renderThreadStarted` Double
++* `renderFrameCreated` Double
++* `didCreateScriptContext` Double
++* `injectCrashReportingBefore` Double
++* `injectCrashReportingAfter` Double
++* `nodeLoadEnvironment` Double
++* `initStart` Double
++* `initFinish` Double
++
+ ### `process.getHeapStatistics()`
+ 
+ Returns `Object`:
+diff --git a/lib/browser/init.ts b/lib/browser/init.ts
+index be6e4960155931b5b26a0dd7b46ff26316c88d03..908cf5dfe5c16f84fd8cdbc55679a4ba9000d3d4 100644
+--- a/lib/browser/init.ts
++++ b/lib/browser/init.ts
+@@ -1,9 +1,13 @@
++const timestamp = Date.now();
++
++/* eslint-disable import/first */
+ import { Buffer } from 'buffer';
+ import { EventEmitter } from 'events';
+ import * as fs from 'fs';
+ import { Socket } from 'net';
+ import * as path from 'path';
+ import * as util from 'util';
++/* eslint-enable import/first */
+ const Module = require('module');
+ 
+ // We modified the original process.argv to let node.js load the init.js,
+@@ -16,6 +20,12 @@ require('../common/reset-search-paths');
+ // Import common settings.
+ require('@electron/internal/common/init');
+ 
++const v8Util = process.electronBinding('v8_util');
++
++if (v8Util.markInitStart) {
++  v8Util.markInitStart(timestamp);
++}
++
+ process.electronBinding('event_emitter').setEventEmitterPrototype(EventEmitter.prototype);
+ 
+ if (process.platform === 'win32') {
+@@ -205,6 +215,10 @@ const { setDefaultApplicationMenu } = require('@electron/internal/browser/defaul
+ // menu is set before any user window is created.
+ app.once('will-finish-launching', setDefaultApplicationMenu);
+ 
++if (v8Util.markInitFinish) {
++  v8Util.markInitFinish(Date.now());
++}
++
+ if (packagePath) {
+   // Finally load app's main.js and transfer control to C++.
+   process._firstFileName = Module._resolveFilename(path.join(packagePath, mainStartupScript), null, false);
+diff --git a/lib/renderer/init.ts b/lib/renderer/init.ts
+index cd2fd66fd85affe4258a59555319d5591f81a3aa..a81107b662b660d9b2da5ffbefa1670ec187f152 100644
+--- a/lib/renderer/init.ts
++++ b/lib/renderer/init.ts
+@@ -1,5 +1,9 @@
++const timestamp = Date.now();
++
++/* eslint-disable import/first */
+ import { EventEmitter } from 'events';
+ import * as path from 'path';
++/* eslint-enable import/first */
+ 
+ const Module = require('module');
+ 
+@@ -39,6 +43,10 @@ require('@electron/internal/common/init');
+ // The global variable will be used by ipc for event dispatching
+ const v8Util = process.electronBinding('v8_util');
+ 
++if (v8Util.markInitStart) {
++  v8Util.markInitStart(timestamp);
++}
++
+ // Expose process.contextId
+ const contextId = v8Util.getHiddenValue<string>(global, 'contextId');
+ Object.defineProperty(process, 'contextId', { enumerable: true, value: contextId });
+@@ -203,6 +211,10 @@ if (nodeIntegration) {
+   }
+ }
+ 
++if (v8Util.markInitFinish) {
++  v8Util.markInitFinish(Date.now());
++}
++
+ // Load the preload scripts.
+ for (const preloadScript of preloadScripts) {
+   try {
+diff --git a/lib/sandboxed_renderer/init.js b/lib/sandboxed_renderer/init.js
+index 190647f5d816bb7cdf9e6aaf0d433c2f15566de0..bb5da0454a95beed1508f86b9fdad62928ef452a 100644
+--- a/lib/sandboxed_renderer/init.js
++++ b/lib/sandboxed_renderer/init.js
+@@ -1,5 +1,7 @@
+ 'use strict';
+ 
++const timestamp = Date.now();
++
+ /* eslint no-eval: "off" */
+ /* global binding, Buffer */
+ const events = require('events');
+@@ -8,6 +10,11 @@ const { EventEmitter } = events;
+ process.electronBinding = require('@electron/internal/common/electron-binding-setup').electronBindingSetup(binding.get, 'renderer');
+ 
+ const v8Util = process.electronBinding('v8_util');
++
++if (v8Util.markInitStart) {
++  v8Util.markInitStart(timestamp);
++}
++
+ // Expose Buffer shim as a hidden value. This is used by C++ code to
+ // deserialize Buffer instances sent from browser process.
+ v8Util.setHiddenValue(global, 'Buffer', Buffer);
+@@ -193,6 +200,10 @@ function runPreloadScript (preloadSrc) {
+   preloadFn(preloadRequire, preloadProcess, Buffer, global, setImmediate, clearImmediate, {});
+ }
+ 
++if (v8Util.markInitFinish) {
++  v8Util.markInitFinish(Date.now());
++}
++
+ for (const { preloadPath, preloadSrc, preloadError } of preloadScripts) {
+   try {
+     if (preloadSrc) {
+diff --git a/shell/app/electron_library_main.mm b/shell/app/electron_library_main.mm
+index 58baed01c7da27d230195690ba190ceee2f9f3de..002813d4c5b7eb739c77665245833aa98e4a3182 100644
+--- a/shell/app/electron_library_main.mm
++++ b/shell/app/electron_library_main.mm
+@@ -9,12 +9,20 @@
+ #include "base/mac/bundle_locations.h"
+ #include "base/mac/scoped_nsautorelease_pool.h"
+ #include "content/public/app/content_main.h"
++#include "microsoft/buildflags/buildflags.h"
+ #include "shell/app/electron_main_delegate.h"
+ #include "shell/app/node_main.h"
+ #include "shell/common/electron_command_line.h"
+ #include "shell/common/mac/main_application_bundle.h"
+ 
++#if BUILDFLAG(MICROSOFT_ENABLE_STARTUP_METRICS)
++#include "microsoft/src/electron/shell/common/startup_metrics.h"
++#endif
++
+ int ElectronMain(int argc, char* argv[]) {
++#if BUILDFLAG(MICROSOFT_ENABLE_STARTUP_METRICS)
++  microsoft::startup_metrics::main.Mark();
++#endif
+   electron::ElectronMainDelegate delegate;
+   content::ContentMainParams params(&delegate);
+   params.argc = argc;
+diff --git a/shell/app/electron_main.cc b/shell/app/electron_main.cc
+index 3cd1f2bcb8d22a0fce58e3147c52bf6c3ba748cc..ab907b7793138a4a658c0f10051b12c0070520bc 100644
+--- a/shell/app/electron_main.cc
++++ b/shell/app/electron_main.cc
+@@ -47,6 +47,7 @@
+ #include "base/at_exit.h"
+ #include "base/i18n/icu_util.h"
+ #include "electron/buildflags/buildflags.h"
++#include "microsoft/buildflags/buildflags.h"
+ #include "shell/app/node_main.h"
+ #include "shell/common/electron_command_line.h"
+ #include "shell/common/electron_constants.h"
+@@ -55,6 +56,10 @@
+ #include "sandbox/mac/seatbelt_exec.h"  // nogncheck
+ #endif
+ 
++#if BUILDFLAG(MICROSOFT_ENABLE_STARTUP_METRICS)
++#include "microsoft/src/electron/shell/common/startup_metrics.h"
++#endif
++
+ namespace {
+ 
+ #if defined(OS_WIN)
+@@ -113,6 +118,10 @@ int APIENTRY wWinMain(HINSTANCE instance, HINSTANCE, wchar_t* cmd, int) {
+   if (!arguments.argv)
+     return -1;
+ 
++#if BUILDFLAG(MICROSOFT_ENABLE_STARTUP_METRICS)
++  microsoft::startup_metrics::main.Mark();
++#endif
++
+ #ifdef _DEBUG
+   // Don't display assert dialog boxes in CI test runs
+   static const char* kCI = "CI";
+@@ -223,6 +232,10 @@ int main(int argc, char* argv[]) {
+   }
+ #endif
+ 
++#if BUILDFLAG(MICROSOFT_ENABLE_STARTUP_METRICS)
++  microsoft::startup_metrics::main.Mark();
++#endif
++
+   electron::ElectronMainDelegate delegate;
+   content::ContentMainParams params(&delegate);
+   params.argc = argc;
+diff --git a/shell/app/electron_main_delegate.cc b/shell/app/electron_main_delegate.cc
+index 0b24cde996d67fdf5c47dc2d3113a7a74d4e37d2..8bd9ef9e18c02f84543d04a860cb20c5e077451d 100644
+--- a/shell/app/electron_main_delegate.cc
++++ b/shell/app/electron_main_delegate.cc
+@@ -62,6 +62,10 @@
+ #include "shell/common/crash_keys.h"
+ #endif
+ 
++#if BUILDFLAG(MICROSOFT_ENABLE_STARTUP_METRICS)
++#include "microsoft/src/electron/shell/common/startup_metrics.h"
++#endif
++
+ namespace electron {
+ 
+ namespace {
+@@ -171,6 +175,9 @@ const size_t ElectronMainDelegate::kNonWildcardDomainNonPortSchemesSize =
+     base::size(kNonWildcardDomainNonPortSchemes);
+ 
+ bool ElectronMainDelegate::BasicStartupComplete(int* exit_code) {
++#if BUILDFLAG(MICROSOFT_ENABLE_STARTUP_METRICS)
++  microsoft::startup_metrics::basic_startup_complete.Mark();
++#endif
+   auto* command_line = base::CommandLine::ForCurrentProcess();
+ 
+   logging::LoggingSettings settings;
+diff --git a/shell/common/api/electron_api_v8_util.cc b/shell/common/api/electron_api_v8_util.cc
+index 975c862c8751d5a64863dfce16b1ad6983390d74..a9b25ccf28e3a2ac970f495943f5fd03b99e5147 100644
+--- a/shell/common/api/electron_api_v8_util.cc
++++ b/shell/common/api/electron_api_v8_util.cc
+@@ -22,6 +22,10 @@
+ #include "shell/common/api/remote/remote_object_freer.h"
+ #endif
+ 
++#if BUILDFLAG(MICROSOFT_ENABLE_STARTUP_METRICS)
++#include "microsoft/src/electron/shell/common/startup_metrics.h"
++#endif
++
+ namespace std {
+ 
+ // The hash function used by DoubleIDWeakMap.
+@@ -112,6 +116,18 @@ void LowMemoryNotification(v8::Isolate* isolate) {
+ 
+ #endif
+ 
++#if BUILDFLAG(MICROSOFT_ENABLE_STARTUP_METRICS)
++
++void MarkInitStart(double timestamp) {
++  microsoft::startup_metrics::init_start.Mark();
++}
++
++void MarkInitFinish(double timestamp) {
++  microsoft::startup_metrics::init_finish.Mark();
++}
++
++#endif
++
+ void RequestGarbageCollectionForTesting(v8::Isolate* isolate) {
+   isolate->RequestGarbageCollectionForTesting(
+       v8::Isolate::GarbageCollectionType::kFullGarbageCollection);
+@@ -187,6 +203,11 @@ void Initialize(v8::Local<v8::Object> exports,
+ #if BUILDFLAG(MICROSOFT_ENABLE_REMOTE_HOST)
+   dict.SetMethod("lowMemoryNotification", &LowMemoryNotification);
+ #endif
++
++#if BUILDFLAG(MICROSOFT_ENABLE_STARTUP_METRICS)
++  dict.SetMethod("markInitStart", &MarkInitStart);
++  dict.SetMethod("markInitFinish", &MarkInitFinish);
++#endif
+ }
+ 
+ }  // namespace
+diff --git a/shell/common/node_bindings.cc b/shell/common/node_bindings.cc
+index 0ac3a0a41d320e5e6688b069e9b219aac95f43d2..c2d33c47310b506de9ab1038d45ad89635305454 100644
+--- a/shell/common/node_bindings.cc
++++ b/shell/common/node_bindings.cc
+@@ -24,6 +24,7 @@
+ #include "content/public/browser/browser_thread.h"
+ #include "content/public/common/content_paths.h"
+ #include "electron/buildflags/buildflags.h"
++#include "microsoft/buildflags/buildflags.h"
+ #include "microsoft/src/electron/shell/node_bindings_ms.h"
+ #include "shell/common/electron_command_line.h"
+ #include "shell/common/gin_converters/file_path_converter.h"
+@@ -35,6 +36,10 @@
+ #include "shell/common/node_includes.h"
+ #include "third_party/blink/renderer/bindings/core/v8/v8_initializer.h"  // nogncheck
+ 
++#if BUILDFLAG(MICROSOFT_ENABLE_STARTUP_METRICS)
++#include "microsoft/src/electron/shell/common/startup_metrics.h"
++#endif
++
+ #define ELECTRON_BUILTIN_MODULES(V)      \
+   V(electron_browser_app)                \
+   V(electron_browser_auto_updater)       \
+@@ -491,6 +496,9 @@ node::Environment* NodeBindings::CreateEnvironment(
+ }
+ 
+ void NodeBindings::LoadEnvironment(node::Environment* env) {
++#if BUILDFLAG(MICROSOFT_ENABLE_STARTUP_METRICS)
++  microsoft::startup_metrics::node_load_environment.Mark();
++#endif
+   node::LoadEnvironment(env);
+   gin_helper::EmitEvent(env->isolate(), env->process_object(), "loaded");
+ }
+diff --git a/shell/renderer/renderer_client_base.cc b/shell/renderer/renderer_client_base.cc
+index d4eda8f1be710b8908e4da579533b358fe3f4e90..0bef1c2208eb6954db60fcb1ee14edb474c5ff27 100644
+--- a/shell/renderer/renderer_client_base.cc
++++ b/shell/renderer/renderer_client_base.cc
+@@ -20,6 +20,7 @@
+ #include "content/public/renderer/render_thread.h"
+ #include "content/public/renderer/render_view.h"
+ #include "electron/buildflags/buildflags.h"
++#include "microsoft/buildflags/buildflags.h"
+ #include "printing/buildflags/buildflags.h"
+ #include "shell/common/color_util.h"
+ #include "shell/common/gin_helper/dictionary.h"
+@@ -81,6 +82,10 @@
+ #include "shell/renderer/extensions/electron_extensions_renderer_client.h"
+ #endif  // BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
+ 
++#if BUILDFLAG(MICROSOFT_ENABLE_STARTUP_METRICS)
++#include "microsoft/src/electron/shell/common/startup_metrics.h"
++#endif
++
+ namespace electron {
+ 
+ namespace {
+@@ -122,6 +127,9 @@ RendererClientBase::~RendererClientBase() = default;
+ void RendererClientBase::DidCreateScriptContext(
+     v8::Handle<v8::Context> context,
+     content::RenderFrame* render_frame) {
++#if BUILDFLAG(MICROSOFT_ENABLE_STARTUP_METRICS)
++  microsoft::startup_metrics::did_create_script_context.Mark();
++#endif
+   // global.setHidden("contextId", `${processHostId}-${++next_context_id_}`)
+   auto context_id = base::StringPrintf(
+       "%s-%" PRId64, renderer_client_id_.c_str(), ++next_context_id_);
+@@ -141,6 +149,9 @@ void RendererClientBase::AddRenderBindings(
+     v8::Local<v8::Object> binding_object) {}
+ 
+ void RendererClientBase::RenderThreadStarted() {
++#if BUILDFLAG(MICROSOFT_ENABLE_STARTUP_METRICS)
++  microsoft::startup_metrics::render_thread_started.Mark();
++#endif
+   auto* command_line = base::CommandLine::ForCurrentProcess();
+ 
+ #if BUILDFLAG(USE_EXTERNAL_POPUP_MENU)
+@@ -243,6 +254,9 @@ void RendererClientBase::ExposeInterfacesToBrowser(mojo::BinderMap* binders) {
+ 
+ void RendererClientBase::RenderFrameCreated(
+     content::RenderFrame* render_frame) {
++#if BUILDFLAG(MICROSOFT_ENABLE_STARTUP_METRICS)
++  microsoft::startup_metrics::render_frame_created.Mark();
++#endif
+ #if defined(TOOLKIT_VIEWS)
+   new AutofillAgent(render_frame,
+                     render_frame->GetAssociatedInterfaceRegistry());
+diff --git a/typings/internal-ambient.d.ts b/typings/internal-ambient.d.ts
+index 54caa4904298447f285b949918371b13c5b77171..4a260747de13a6bf3234e36e804370593f8dd8bf 100644
+--- a/typings/internal-ambient.d.ts
++++ b/typings/internal-ambient.d.ts
+@@ -55,6 +55,8 @@ declare namespace NodeJS {
+     triggerFatalErrorForTesting(): void;
+     // microsoft
+     lowMemoryNotification(): void;
++    markInitStart(timestamp: number): void;
++    markInitFinish(timestamp: number): void;
+   }
+ 
+   type DataPipe = {

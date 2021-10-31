@@ -1,0 +1,10 @@
+# https://domoreexp.visualstudio.com/Teamspace/_build?definitionId=2865
+#
+# Publish already built Electron to an Skype IVY storage.
+
+trigger: none
+
+jobs:
+- template: templates/job/publish_electron_to_skype_ivy.yml
+  parameters:
+    buildId: $(Electron.PublishElectron.BuildId)

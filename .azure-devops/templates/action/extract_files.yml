@@ -1,0 +1,25 @@
+# The "ExtractFiles@1" task [1] doesn't work properly on Windows ARM64.
+# It downloads an x64 version of 7zip.exe which can't be run on a ARM64 machine.
+#
+# [1] https://docs.microsoft.com/en-us/azure/devops/pipelines/tasks/utility/extract-files?view=azure-devops
+
+parameters:
+  arch: ''  # {'arm64', 'x64', 'x86'}
+  archiveFile: ''
+  destinationFolder: ''
+  displayName: Extract files
+  platform: ''  # {'linux', 'mac', 'windows'}
+
+steps:
+- ${{ if and(eq(parameters.platform, 'windows'), eq(parameters.arch, 'arm64')) }}:
+  # https://docs.microsoft.com/en-us/powershell/module/microsoft.powershell.archive/expand-archive?view=powershell-6
+  - powershell: |
+      Expand-Archive -Path "${{ parameters.archiveFile }}" -DestinationPath "${{ parameters.destinationFolder }}"
+    displayName: ${{ parameters.displayName }}
+
+- ${{ if or(ne(parameters.platform, 'windows'), ne(parameters.arch, 'arm64')) }}:
+  - task: ExtractFiles@1
+    displayName: ${{ parameters.displayName }}
+    inputs:
+      archiveFilePatterns: ${{ parameters.archiveFile }}
+      destinationFolder: ${{ parameters.destinationFolder }}

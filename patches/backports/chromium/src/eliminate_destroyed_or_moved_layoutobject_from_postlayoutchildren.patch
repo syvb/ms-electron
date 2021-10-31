@@ -1,0 +1,108 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Koji Ishii <kojii@chromium.org>
+Date: Wed, 1 Jul 2020 03:30:22 +0000
+Subject: Eliminate destroyed or moved |LayoutObject| from |PostLayoutChildren|
+
+This patch changes the iterator of |PostLayoutChildren| to
+eliminate fragments for destroyed or moved |LayoutObject|.
+
+The root cause is probably pre-paint with dirty tree, and
+this patch does not address that, but makes fragment
+traversal safer.
+
+This patch is speculative.
+
+Bug: 1099863
+Change-Id: Ia78d55cc43a50f54f4b547ae8febc025770ac004
+Reviewed-on: https://chromium-review.googlesource.com/c/chromium/src/+/2275944
+Reviewed-by: Xianzhu Wang <wangxianzhu@chromium.org>
+Commit-Queue: Koji Ishii <kojii@chromium.org>
+Cr-Commit-Position: refs/heads/master@{#784303}
+
+diff --git a/third_party/blink/renderer/core/layout/layout_box.cc b/third_party/blink/renderer/core/layout/layout_box.cc
+index 54f13b0b9d5bf3701e0524cf53e6899d15b3655f..45859c7a66ec0b074433b3f6654b41c85bca1fb0 100644
+--- a/third_party/blink/renderer/core/layout/layout_box.cc
++++ b/third_party/blink/renderer/core/layout/layout_box.cc
+@@ -2690,7 +2690,8 @@ const NGLayoutResult* LayoutBox::GetCachedLayoutResult() const {
+   const NGLayoutResult* result = layout_results_[0].get();
+   if (result->IsSingleUse())
+     return nullptr;
+-  DCHECK(result->PhysicalFragment().IsAlive() || BeingDestroyed());
++  DCHECK(!result->PhysicalFragment().IsLayoutObjectDestroyedOrMoved() ||
++         BeingDestroyed());
+   DCHECK_EQ(layout_results_.size(), 1u);
+   return result;
+ }
+diff --git a/third_party/blink/renderer/core/layout/ng/ng_physical_container_fragment.h b/third_party/blink/renderer/core/layout/ng/ng_physical_container_fragment.h
+index a155b84e3f5596cdac6037cf8323b89f05aed985..6a784af1949a9d94549bc7c0735e0fa697f5bfc8 100644
+--- a/third_party/blink/renderer/core/layout/ng/ng_physical_container_fragment.h
++++ b/third_party/blink/renderer/core/layout/ng/ng_physical_container_fragment.h
+@@ -25,9 +25,10 @@ enum class NGOutlineType;
+ 
+ class CORE_EXPORT NGPhysicalContainerFragment : public NGPhysicalFragment {
+  public:
+-  // Same as |base::span<const NGLink>|, except that each |NGLink| has the
+-  // latest generation of post-layout. See
+-  // |NGPhysicalFragment::UpdatedFragment()| for more details.
++  // Same as |base::span<const NGLink>|, except that:
++  // * Each |NGLink| has the latest generation of post-layout. See
++  //   |NGPhysicalFragment::UpdatedFragment()| for more details.
++  // * The iterator skips fragments for destroyed or moved |LayoutObject|.
+   class PostLayoutChildLinkList {
+    public:
+     PostLayoutChildLinkList(wtf_size_t count, const NGLink* buffer)
+@@ -44,13 +45,17 @@ class CORE_EXPORT NGPhysicalContainerFragment : public NGPhysicalFragment {
+       using pointer = value_type*;
+       using reference = value_type&;
+ 
+-      ConstIterator(const NGLink* current) : current_(current) {}
++      ConstIterator(const NGLink* current, wtf_size_t size)
++          : current_(current), end_(current + size) {
++        SkipDestroyedOrMoved();
++      }
+ 
+       const NGLink& operator*() const { return *PostLayoutOrCurrent(); }
+       const NGLink* operator->() const { return PostLayoutOrCurrent(); }
+ 
+       ConstIterator& operator++() {
+         ++current_;
++        SkipDestroyedOrMoved();
+         return *this;
+       }
+       bool operator==(const ConstIterator& other) const {
+@@ -69,13 +74,20 @@ class CORE_EXPORT NGPhysicalContainerFragment : public NGPhysicalFragment {
+         return &post_layout_;
+       }
+ 
++      void SkipDestroyedOrMoved() {
++        while (current_ != end_ &&
++               current_->fragment->IsLayoutObjectDestroyedOrMoved())
++          ++current_;
++      }
++
+       const NGLink* current_;
++      const NGLink* end_;
+       mutable NGLink post_layout_;
+     };
+     using const_iterator = ConstIterator;
+ 
+-    const_iterator begin() const { return const_iterator(buffer_); }
+-    const_iterator end() const { return const_iterator(buffer_ + count_); }
++    const_iterator begin() const { return const_iterator(buffer_, count_); }
++    const_iterator end() const { return const_iterator(buffer_ + count_, 0); }
+ 
+     const NGLink operator[](wtf_size_t idx) const {
+       CHECK_LT(idx, count_);
+diff --git a/third_party/blink/renderer/core/layout/ng/ng_physical_fragment.h b/third_party/blink/renderer/core/layout/ng/ng_physical_fragment.h
+index d14c4b9eb1ef8c3b654f9e90408f8f6172bb13cf..ab7ae12b46e05f120f8f6b46de77d0788eefb3e9 100644
+--- a/third_party/blink/renderer/core/layout/ng/ng_physical_fragment.h
++++ b/third_party/blink/renderer/core/layout/ng/ng_physical_fragment.h
+@@ -298,7 +298,7 @@ class CORE_EXPORT NGPhysicalFragment
+   // |NGPhysicalFragment| may live longer than the corresponding |LayoutObject|.
+   // Though |NGPhysicalFragment| is immutable, |layout_object_| is cleared to
+   // |nullptr| when it was destroyed to avoid reading destroyed objects.
+-  bool IsAlive() const { return layout_object_; }
++  bool IsLayoutObjectDestroyedOrMoved() const { return !layout_object_; }
+   void LayoutObjectWillBeDestroyed() const {
+     const_cast<NGPhysicalFragment*>(this)->layout_object_ = nullptr;
+   }

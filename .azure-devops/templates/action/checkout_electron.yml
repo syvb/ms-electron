@@ -1,0 +1,43 @@
+parameters:
+  gclientCustomVars: ''  # A string of key=value pairs.
+  gitCacheDirectory: None  # A directory path or "None" to disable the cache.
+  platform: ''  # {'linux', 'mac', 'mas', 'windows'}
+  saveGclientConfig: true  # {true, false}
+  workingDirectory: ''  # A full path to a checkout root directory.
+  _repoPath: src/microsoft  # Relative to the working directory above.
+
+steps:
+- template: checkout_self.yml
+
+- template: get_depot_tools.yml
+  parameters:
+    platform: ${{ parameters.platform }}
+
+- task: CopyFiles@2
+  displayName: Copy repo to ${{ parameters._repoPath }}
+  inputs:
+    targetFolder: ${{ parameters.workingDirectory }}/${{ parameters._repoPath }}
+    cleanTargetFolder: true
+
+- task: PythonScript@0
+  displayName: Create a gclient config
+  inputs:
+    scriptSource: filePath
+    scriptPath: ${{ parameters.workingDirectory }}/${{ parameters._repoPath }}/scripts/gclient_config.py
+    arguments: >
+      --cache-dir ${{ parameters.gitCacheDirectory }}
+      --custom-var ${{ parameters.gclientCustomVars }}
+      --print
+    failOnStderr: false
+    workingDirectory: ${{ parameters.workingDirectory }}
+
+- ${{ if eq(parameters.saveGclientConfig, true) }}:
+  - template: copy_artifact.yml
+    parameters:
+      file: .gclient
+      sourceFolder: ${{ parameters.workingDirectory }}
+
+- template: gclient_sync.yml
+  parameters:
+    platform: ${{ parameters.platform }}
+    workingDirectory: ${{ parameters.workingDirectory }}

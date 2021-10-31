@@ -1,0 +1,36 @@
+parameters:
+  _platform: windows
+  _stagingDirectory: $(Build.ArtifactStagingDirectory)
+  _workingDirectory: $(Build.BinariesDirectory)
+
+jobs:
+- job: mirror_linux_sysroots
+  displayName: Mirror Linux sysroots
+  pool:
+    vmImage: vs2017-win2016
+  steps:
+  - template: ../action/setup_agent.yml
+    parameters:
+      platform: ${{ parameters._platform }}
+
+  - template: ../action/checkout_electron_without_chromium.yml
+    parameters:
+      platform: ${{ parameters._platform }}
+      workingDirectory: ${{ parameters._workingDirectory }}
+
+  - task: PythonScript@0
+    displayName: Download sysroots
+    inputs:
+      scriptSource: filePath
+      scriptPath: scripts/download_linux_sysroots.py
+      arguments: >
+        --config ${{ parameters._workingDirectory }}/src/electron/script/sysroots.json
+        --save-to ${{ parameters._stagingDirectory }}
+      failOnStderr: true
+
+  - template: ../action/upload_to_azure.yml
+    parameters:
+      blobPrefix: toolchain
+      containerName: chrome-linux-sysroot
+      sourcePath: ${{ parameters._stagingDirectory }}/*
+      storage: dropsskypeelectron

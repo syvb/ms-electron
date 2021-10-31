@@ -1,0 +1,17 @@
+# Asserts that the file provided is at least N megabytes big.
+
+parameters:
+  displayName: Assert file size
+  filePath: ''  # An absolute path.
+  sizeAtLeast: 0  # In megabytes.
+
+steps:
+- task: PythonScript@0
+  displayName: ${{ parameters.displayName }}
+  inputs:
+    scriptSource: filePath
+    scriptPath: scripts/assert_file_size.py
+    arguments: >
+      --file ${{ parameters.filePath }}
+      --at-least ${{ parameters.sizeAtLeast }}
+    failOnStderr: true

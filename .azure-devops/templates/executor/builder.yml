@@ -1,0 +1,78 @@
+# Environment to build Electron.
+# Sets up build agents, caches, env vars, and stuff like that.
+
+parameters:
+  dependsOn: []
+  displayName: ''
+  jobId: ''
+  platform: ''  # {'linux', 'mac', 'mas', 'windows'}
+  steps: []
+  timeoutInMinutes: 0  # Stands for maximum allowed by Azure Pipelines.
+  windows10SDK: 19041  # Set to an empty string if it doesn't matter.
+  _gitCache:  # Cache directories are not expected to be cleared before a build.
+    common: $(Agent.WorkFolder)/.git-cache
+    linux: /var/cache/gclient  # Must be absolute to be used as a Docker bind mount.
+
+jobs:
+- job: ${{ parameters.jobId }}
+  dependsOn: ${{ parameters.dependsOn }}
+  displayName: ${{ parameters.displayName }}
+  pool:
+    ${{ if eq(parameters.platform, 'linux') }}:
+      name: 'Electron Linux'
+    ${{ if in(parameters.platform, 'mac', 'mas') }}:
+      name: 'Electron Mac'
+      demands:
+      - Xcode_11.3.1
+    ${{ if eq(parameters.platform, 'windows') }}:
+      name: 'Electron Windows'
+      demands:
+      - VisualStudio_16.0  # VS 2019
+      - ${{ if ne(parameters.windows10SDK, '') }}:
+        - Windows10_SDK -equals ${{ parameters.windows10SDK }}
+  ${{ if eq(parameters.platform, 'linux') }}:
+    container:
+      endpoint: Electron-Build-Docker
+      image: 'electronatms.azurecr.io/linux-builder:d93c7015f1885a57f54c97827a6861641682ff66'
+      options: >
+        --user 0:0
+        --mount type=bind,source=${{ parameters._gitCache.linux }},target=${{ parameters._gitCache.linux }}
+  timeoutInMinutes: ${{ parameters.timeoutInMinutes }}
+
+  variables:
+  - group: Electron
+  - ${{ if eq(parameters.platform, 'linux') }}:
+    - name: SCCACHE_AZURE_BLOB_CONTAINER
+      value: sccache-linux
+    # (alkuzmin): It has to be set on Linux to make it possible to connect to Azure.
+    # Maybe the build agents are misconfigured?
+    - name: SSL_CERT_DIR
+      value: '/etc/ssl/certs'
+  - ${{ if in(parameters.platform, 'mac', 'mas') }}:
+    - name: SCCACHE_AZURE_BLOB_CONTAINER
+      value: sccache-mac
+  - ${{ if eq(parameters.platform, 'windows') }}:
+    - template: ../variables/msvs_version.yml
+
+  steps:
+  - template: ../action/setup_agent.yml
+    parameters:
+      platform: ${{ parameters.platform }}
+      usePython: false
+
+  - ${{ if in(parameters.platform, 'linux', 'mac', 'mas') }}:
+    # Value is read from a variable group, so it has to be set dynamically.
+    - template: ../action/set_variable.yml
+      parameters:
+        name: SCCACHE_AZURE_CONNECTION_STRING
+        value: $(ElectronCacheConnectionString)
+
+  - template: ../action/set_variable.yml
+    parameters:
+      name: Electron.Executor.GitCacheDirectory
+      ${{ if in(parameters.platform, 'mac', 'mas', 'windows') }}:
+        value: ${{ parameters._gitCache.common }}
+      ${{ if eq(parameters.platform, 'linux') }}:
+        value: ${{ parameters._gitCache.linux }}
+
+  - ${{ parameters.steps }}

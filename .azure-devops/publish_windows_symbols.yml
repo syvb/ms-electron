@@ -1,0 +1,16 @@
+# https://domoreexp.visualstudio.com/Teamspace/_build?definitionId=3668
+#
+# Publish windows symbol files (pdb) to just
+# https://microsoft.artifacts.visualstudio.com (symweb)
+
+trigger: none
+
+parameters:
+- name: buildId
+  displayName: Electron build ID
+  type: number
+
+jobs:
+- template: templates/multi_job/publish_windows_symbols.yml
+  parameters:
+    buildId: ${{ parameters.buildId }}

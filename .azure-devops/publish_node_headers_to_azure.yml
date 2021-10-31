@@ -1,0 +1,15 @@
+# https://domoreexp.visualstudio.com/Teamspace/_build?definitionId=2637
+#
+# Publish Node.js headers and libraries to an Azure Storage.
+
+trigger: none
+
+parameters:
+- name: buildId
+  displayName: Electron build ID
+  type: number
+
+jobs:
+- template: templates/job/publish_node_headers_to_azure.yml
+  parameters:
+    buildId: ${{ parameters.buildId }}

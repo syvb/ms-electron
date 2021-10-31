@@ -1,0 +1,108 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Milan Burda <miburda@microsoft.com>
+Date: Fri, 23 Oct 2020 01:48:30 +0200
+Subject: feat: add support for UNNotificationResponse in app 'ready' event
+ (#25950)
+
+Backport: https://github.com/electron/electron/pull/25950
+
+diff --git a/docs/api/app.md b/docs/api/app.md
+index eda52dbb7348927888317ee341ffb3f79e27a849..bbd888339eab14330e61af50f646107dd5c63adc 100644
+--- a/docs/api/app.md
++++ b/docs/api/app.md
+@@ -33,7 +33,7 @@ In most cases, you should do everything in the `ready` event handler.
+ Returns:
+ 
+ * `event` Event
+-* `launchInfo` Record<string, any> _macOS_
++* `launchInfo` Record<string, any> | [NotificationResponse](structures/notification-response.md) _macOS_
+ 
+ Emitted once, when Electron has finished initializing. On macOS, `launchInfo`
+ holds the `userInfo` of the `NSUserNotification` that was used to open the
+diff --git a/docs/api/structures/notification-response.md b/docs/api/structures/notification-response.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..8d319f61181fc252078a18ceaa16807e7971b43c
+--- /dev/null
++++ b/docs/api/structures/notification-response.md
+@@ -0,0 +1,7 @@
++# NotificationResponse Object
++
++* `actionIdentifier` String - The identifier string of the action that the user selected.
++* `date` Number - The delivery date of the notification.
++* `identifier` String - The unique identifier for this notification request.
++* `userInfo` Record<String, unknown> - A dictionary of custom information associated with the notification.
++* `userText` String (optional) - The text entered or chosen by the user.
+diff --git a/shell/browser/mac/electron_application_delegate.mm b/shell/browser/mac/electron_application_delegate.mm
+index df8ede7f3360701e6573a86361f42f3896a450b7..4c8cc6095d8be294ccbf1d2a0976f026c1e4b966 100644
+--- a/shell/browser/mac/electron_application_delegate.mm
++++ b/shell/browser/mac/electron_application_delegate.mm
+@@ -17,6 +17,8 @@
+ #include "shell/browser/mac/dict_util.h"
+ #import "shell/browser/mac/electron_application.h"
+ 
++#import <UserNotifications/UserNotifications.h>
++
+ #if BUILDFLAG(USE_ALLOCATOR_SHIM)
+ // On macOS 10.12, the IME system attempts to allocate a 2^64 size buffer,
+ // which would typically cause an OOM crash. To avoid this, the problematic
+@@ -41,6 +43,29 @@ static base::mac::ScopedObjCClassSwizzler* g_swizzle_imk_input_session;
+ @end
+ #endif  // BUILDFLAG(USE_ALLOCATOR_SHIM)
+ 
++static NSDictionary* UNNotificationResponseToNSDictionary(
++    UNNotificationResponse* response) API_AVAILABLE(macosx(10.14)) {
++  // [response isKindOfClass:[UNNotificationResponse class]]
++  if (![response respondsToSelector:@selector(actionIdentifier)] ||
++      ![response respondsToSelector:@selector(notification)]) {
++    return nil;
++  }
++
++  NSMutableDictionary* result = [[NSMutableDictionary alloc] init];
++  result[@"actionIdentifier"] = response.actionIdentifier;
++  result[@"date"] = @(response.notification.date.timeIntervalSince1970);
++  result[@"identifier"] = response.notification.request.identifier;
++  result[@"userInfo"] = response.notification.request.content.userInfo;
++
++  // [response isKindOfClass:[UNTextInputNotificationResponse class]]
++  if ([response respondsToSelector:@selector(userText)]) {
++    result[@"userText"] =
++        static_cast<UNTextInputNotificationResponse*>(response).userText;
++  }
++
++  return result;
++}
++
+ @implementation ElectronApplicationDelegate
+ 
+ - (void)setApplicationDockMenu:(electron::ElectronMenuModel*)model {
+@@ -68,16 +93,23 @@ static base::mac::ScopedObjCClassSwizzler* g_swizzle_imk_input_session;
+ }
+ 
+ - (void)applicationDidFinishLaunching:(NSNotification*)notify {
+-  NSUserNotification* user_notification =
++  NSObject* user_notification =
+       [notify userInfo][NSApplicationLaunchUserNotificationKey];
+-
+-  if ([user_notification isKindOfClass:[NSUserNotification class]]) {
+-    electron::Browser::Get()->DidFinishLaunching(
+-        electron::NSDictionaryToDictionaryValue(user_notification.userInfo));
+-  } else {
+-    electron::Browser::Get()->DidFinishLaunching(base::DictionaryValue());
++  NSDictionary* notification_info = nil;
++
++  if (user_notification) {
++    if ([user_notification isKindOfClass:[NSUserNotification class]]) {
++      notification_info =
++          [static_cast<NSUserNotification*>(user_notification) userInfo];
++    } else if (@available(macOS 10.14, *)) {
++      notification_info = UNNotificationResponseToNSDictionary(
++          static_cast<UNNotificationResponse*>(user_notification));
++    }
+   }
+ 
++  electron::Browser::Get()->DidFinishLaunching(
++      electron::NSDictionaryToDictionaryValue(notification_info));
++
+ #if BUILDFLAG(USE_ALLOCATOR_SHIM)
+   // Disable fatal OOM to hack around an OS bug https://crbug.com/654695.
+   if (base::mac::IsOS10_12()) {

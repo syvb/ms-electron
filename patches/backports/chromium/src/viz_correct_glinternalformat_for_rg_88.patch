@@ -1,0 +1,32 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Sunny Sachanandani <sunnyps@chromium.org>
+Date: Fri, 15 Jan 2021 01:30:58 +0000
+Subject: viz: Correct GLInternalFormat() for RG_88
+
+GL_RG8_EXT is part of GL_EXT_texture_rg which is an ES2 extension, so we
+must follow ES2 semantics like GL_R8_EXT i.e. internal format must match
+data format. Just something I noticed while doing some related work,
+probably doesn't matter in practice if we're not creating RG8 textures
+with glTexImage2D, etc.
+
+Bug: 1116101
+Change-Id: If6042f2432eec13df6b2d27602d87674e19cc78d
+Reviewed-on: https://chromium-review.googlesource.com/c/chromium/src/+/2629665
+Reviewed-by: Zhenyao Mo <zmo@chromium.org>
+Commit-Queue: Sunny Sachanandani <sunnyps@chromium.org>
+Auto-Submit: Sunny Sachanandani <sunnyps@chromium.org>
+Cr-Commit-Position: refs/heads/master@{#843860}
+
+diff --git a/components/viz/common/resources/resource_format_utils.cc b/components/viz/common/resources/resource_format_utils.cc
+index 2bfdfd5d2e4a1674eb0fd6811663e0fb1fb46276..e9139bed083f337633bd9d68052d015f5b558152 100644
+--- a/components/viz/common/resources/resource_format_utils.cc
++++ b/components/viz/common/resources/resource_format_utils.cc
+@@ -201,8 +201,6 @@ unsigned int GLInternalFormat(ResourceFormat format) {
+   // internal format (GL_R16_EXT).
+   if (format == R16_EXT)
+     return GL_R16_EXT;
+-  else if (format == RG_88)
+-    return GL_RG8_EXT;
+   else if (format == ETC1)
+     return GL_ETC1_RGB8_OES;
+   else if (format == RGBA_1010102 || format == BGRA_1010102)

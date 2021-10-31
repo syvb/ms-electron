@@ -1,0 +1,31 @@
+# The built-in CopyFiles task succeeds if no files are found.
+# Let's fail a build if the artifact we are looking for is not there.
+# Optionally check the file size.
+
+parameters:
+  checkFileExistence: true
+  checkFileSizeAtLeast: 0  # In megabytes.
+  file: ''  # A filename without a path.
+  sourceFolder: $(Build.SourcesDirectory)
+  targetFolder: $(Build.ArtifactStagingDirectory)
+
+steps:
+# Do not check file existence separately if its size is going to be checked later.
+- ${{ if and(eq(parameters.checkFileExistence, 'true'), eq(parameters.checkFileSizeAtLeast, '0')) }}:
+  - template: exists.yml
+    parameters:
+      displayName: Check ${{ parameters.file }} existence
+      filePath: ${{ parameters.sourceFolder }}/${{ parameters.file }}
+
+- ${{ if ne(parameters.checkFileSizeAtLeast, '0') }}:
+  - template: assert_file_size.yml
+    parameters:
+      displayName: Check that ${{ parameters.file }} is larger than ${{ parameters.checkFileSizeAtLeast }} MB
+      filePath: ${{ parameters.sourceFolder }}/${{ parameters.file }}
+      sizeAtLeast: ${{ parameters.checkFileSizeAtLeast }}
+
+- template: copy_file.yml
+  parameters:
+    displayName: Copy ${{ parameters.file }} to the artifacts staging directory
+    from: ${{ parameters.sourceFolder }}/${{ parameters.file }}
+    to: ${{ parameters.targetFolder }}/${{ parameters.file }}

@@ -1,0 +1,157 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Milan Burda <milan.burda@gmail.com>
+Date: Mon, 26 Oct 2020 04:03:34 +0100
+Subject: feat: add osProcessId / name properties to webFrameMain (#26093)
+
+Backport: https://github.com/electron/electron/pull/26093
+
+diff --git a/docs/api/web-frame-main.md b/docs/api/web-frame-main.md
+index 4a3598e32b455e154ed312915ee8a3908f5ce362..fa3c00a28ac3e2f73a1e58ccedb1cabe15e18989 100644
+--- a/docs/api/web-frame-main.md
++++ b/docs/api/web-frame-main.md
+@@ -122,9 +122,18 @@ content. The identifier is fixed at the creation of the frame and stays
+ constant for the lifetime of the frame. When the frame is removed, the id is
+ not used again.
+ 
++#### `frame.name` _Readonly_
++
++A `String` representing the frame name.
++
++#### `frame.osProcessId` _Readonly_
++
++An `Integer` representing the operating system `pid` of the process which owns this frame.
++
+ #### `frame.processId` _Readonly_
+ 
+-An `Integer` representing the id of the process which owns this frame.
++An `Integer` representing the Chromium internal `pid` of the process which owns this frame.
++This is not the same as the OS process ID; to read that use `frame.osProcessId`.
+ 
+ #### `frame.routingId` _Readonly_
+ 
+diff --git a/shell/browser/api/electron_api_web_contents.cc b/shell/browser/api/electron_api_web_contents.cc
+index d74b9d01a7328aa3c1102b2cb67cba3e5c4cf27e..dccfcd2ecf021e07bcfb6ddeee852ff06b6a4f2e 100644
+--- a/shell/browser/api/electron_api_web_contents.cc
++++ b/shell/browser/api/electron_api_web_contents.cc
+@@ -1620,18 +1620,6 @@ base::ProcessId WebContents::GetOSProcessID() const {
+   return base::GetProcId(process_handle);
+ }
+ 
+-base::ProcessId WebContents::GetOSProcessIdForFrame(
+-    const std::string& name,
+-    const std::string& document_url) const {
+-  for (auto* frame : web_contents()->GetAllFrames()) {
+-    if (frame->GetFrameName() == name &&
+-        frame->GetLastCommittedURL().spec() == document_url) {
+-      return base::GetProcId(frame->GetProcess()->GetProcess().Handle());
+-    }
+-  }
+-  return base::kNullProcessId;
+-}
+-
+ WebContents::Type WebContents::GetType() const {
+   return type_;
+ }
+@@ -2901,8 +2889,6 @@ void WebContents::BuildPrototype(v8::Isolate* isolate,
+                  &WebContents::SetBackgroundThrottling)
+       .SetMethod("getProcessId", &WebContents::GetProcessID)
+       .SetMethod("getOSProcessId", &WebContents::GetOSProcessID)
+-      .SetMethod("_getOSProcessIdForFrame",
+-                 &WebContents::GetOSProcessIdForFrame)
+       .SetMethod("equal", &WebContents::Equal)
+       .SetMethod("_loadURL", &WebContents::LoadURL)
+       .SetMethod("downloadURL", &WebContents::DownloadURL)
+diff --git a/shell/browser/api/electron_api_web_contents.h b/shell/browser/api/electron_api_web_contents.h
+index d9eb94c790004dbf0ace10e03cc81c8472a95ce3..9d0c58bfa70b01a838eb27edf1f84415a7e94ac4 100644
+--- a/shell/browser/api/electron_api_web_contents.h
++++ b/shell/browser/api/electron_api_web_contents.h
+@@ -181,8 +181,6 @@ class WebContents : public gin_helper::TrackableObject<WebContents>,
+   void SetBackgroundThrottling(bool allowed);
+   int GetProcessID() const;
+   base::ProcessId GetOSProcessID() const;
+-  base::ProcessId GetOSProcessIdForFrame(const std::string& name,
+-                                         const std::string& document_url) const;
+   Type GetType() const;
+   bool Equal(const WebContents* web_contents) const;
+   void LoadURL(const GURL& url, const gin_helper::Dictionary& options);
+diff --git a/shell/browser/api/electron_api_web_frame_main.cc b/shell/browser/api/electron_api_web_frame_main.cc
+index d7c8f45fa932f10ec8b8d4d99a448a191931bfa3..6a25aab8c77f41775905347306cc1d8ebc3cf0a1 100644
+--- a/shell/browser/api/electron_api_web_frame_main.cc
++++ b/shell/browser/api/electron_api_web_frame_main.cc
+@@ -120,6 +120,20 @@ int WebFrameMain::FrameTreeNodeID(v8::Isolate* isolate) const {
+   return render_frame_->GetFrameTreeNodeId();
+ }
+ 
++std::string WebFrameMain::Name(v8::Isolate* isolate) const {
++  if (!CheckRenderFrame())
++    return std::string();
++  return render_frame_->GetFrameName();
++}
++
++base::ProcessId WebFrameMain::OSProcessID(v8::Isolate* isolate) const {
++  if (!CheckRenderFrame())
++    return -1;
++  base::ProcessHandle process_handle =
++      render_frame_->GetProcess()->GetProcess().Handle();
++  return base::GetProcId(process_handle);
++}
++
+ int WebFrameMain::ProcessID(v8::Isolate* isolate) const {
+   if (!CheckRenderFrame())
+     return -1;
+@@ -210,6 +224,8 @@ gin::ObjectTemplateBuilder WebFrameMain::GetObjectTemplateBuilder(
+       .SetMethod("executeJavaScript", &WebFrameMain::ExecuteJavaScript)
+       .SetMethod("reload", &WebFrameMain::Reload)
+       .SetProperty("frameTreeNodeId", &WebFrameMain::FrameTreeNodeID)
++      .SetProperty("name", &WebFrameMain::Name)
++      .SetProperty("osProcessId", &WebFrameMain::OSProcessID)
+       .SetProperty("processId", &WebFrameMain::ProcessID)
+       .SetProperty("routingId", &WebFrameMain::RoutingID)
+       .SetProperty("url", &WebFrameMain::URL)
+diff --git a/shell/browser/api/electron_api_web_frame_main.h b/shell/browser/api/electron_api_web_frame_main.h
+index 4eb376a4db9666afb6c743bd5cf1ddeb9855fef5..5c5801277ccaa32f3d3f78ac18ac15361d0510e1 100644
+--- a/shell/browser/api/electron_api_web_frame_main.h
++++ b/shell/browser/api/electron_api_web_frame_main.h
+@@ -9,6 +9,7 @@
+ #include <string>
+ #include <vector>
+ 
++#include "base/process/process.h"
+ #include "gin/handle.h"
+ #include "gin/wrappable.h"
+ 
+@@ -68,6 +69,8 @@ class WebFrameMain : public gin::Wrappable<WebFrameMain> {
+   bool Reload(v8::Isolate* isolate);
+ 
+   int FrameTreeNodeID(v8::Isolate* isolate) const;
++  std::string Name(v8::Isolate* isolate) const;
++  base::ProcessId OSProcessID(v8::Isolate* isolate) const;
+   int ProcessID(v8::Isolate* isolate) const;
+   int RoutingID(v8::Isolate* isolate) const;
+   GURL URL(v8::Isolate* isolate) const;
+diff --git a/spec-main/api-subframe-spec.ts b/spec-main/api-subframe-spec.ts
+index e5623d79a40b58e3d0be7991efc693d90fa63fcd..98b9334fd85b82460a659c756877636d9830f00d 100644
+--- a/spec-main/api-subframe-spec.ts
++++ b/spec-main/api-subframe-spec.ts
+@@ -216,7 +216,7 @@ ifdescribe(process.platform !== 'linux')('cross-site frame sandboxing', () => {
+         await w.loadURL(serverUrl);
+ 
+         const pidMain = w.webContents.getOSProcessId();
+-        const pidFrame = (w.webContents as any)._getOSProcessIdForFrame('frame', crossSiteUrl);
++        const pidFrame = w.webContents.mainFrame.frames.find(f => f.name === 'frame')!.osProcessId;
+ 
+         const metrics = app.getAppMetrics();
+         const isProcessSandboxed = function (pid: number) {
+diff --git a/spec-main/api-web-frame-main-spec.ts b/spec-main/api-web-frame-main-spec.ts
+index 313b9a4c166ee3fe9c783d18258dc9f14203165a..0507bf0f3c475f149864648623bc582a7b5755d2 100644
+--- a/spec-main/api-web-frame-main-spec.ts
++++ b/spec-main/api-web-frame-main-spec.ts
+@@ -127,6 +127,8 @@ describe('webFrameMain module', () => {
+       await w.loadFile(path.join(subframesPath, 'frame.html'));
+       const webFrame = w.webContents.mainFrame;
+       expect(webFrame).to.haveOwnProperty('frameTreeNodeId');
++      expect(webFrame).to.haveOwnProperty('name');
++      expect(webFrame).to.haveOwnProperty('osProcessId');
+       expect(webFrame).to.haveOwnProperty('processId');
+       expect(webFrame).to.haveOwnProperty('routingId');
+     });

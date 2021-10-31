@@ -1,0 +1,29 @@
+# Publishes a package to the "Electron" Universal Packages feed.
+# https://domoreexp.visualstudio.com/Teamspace/_packaging?_a=feed&feed=Electron
+
+parameters:
+  condition: ''  # An optional custom condition for the task.
+  displayName: ''  # Optional.
+  packageDescription: ''  # Optional.
+  packageDirectory: ''
+  packageName: ''
+  packageVersion: ''
+
+steps:
+- task: UniversalPackages@0
+  ${{ if eq(parameters.displayName, '') }}:
+    displayName: Publish ${{ parameters.packageName }} to UPack
+  ${{ if ne(parameters.displayName, '') }}:
+    displayName: ${{ parameters.displayName }}
+  ${{ if ne(parameters.condition, '') }}:
+    condition: ${{ parameters.condition }}
+  inputs:
+    command: publish
+    feedsToUsePublish: internal
+    ${{ if ne(parameters.packageDescription, '') }}:
+      packagePublishDescription: ${{ parameters.packageDescription }}
+    publishDirectory: '${{ parameters.packageDirectory }}'
+    vstsFeedPackagePublish: '${{ parameters.packageName }}'
+    vstsFeedPublish: '11ac29bc-5a99-400b-b225-01839ab0c9df/0ecbb47b-d2ad-410a-b9ae-0ccc27007993'
+    versionOption: custom
+    versionPublish: '${{ parameters.packageVersion }}'

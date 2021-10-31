@@ -1,0 +1,38 @@
+# For some reason we have to explicitly authenticate to access the private NPM mirror
+# on Microsoft-hosted agents only.
+# Let's put an .npmcrc file to the user home folder
+# to make it work for both local and global installs.
+
+parameters:
+  platform: ''  # {'linux', 'mac', 'mas', 'windows'}
+  srcDirectory: ''
+
+steps:
+- ${{ if eq(parameters.platform, 'linux') }}:
+  - template: capture_output.yml
+    parameters:
+      command: whoami
+      variable: Electron.UsePrivateNpmRegistry.Username
+
+- template: set_variable.yml
+  parameters:
+    name: Electron.UsePrivateNpmRegistry.Home
+    ${{ if eq(parameters.platform, 'linux') }}:
+      # Can't use $HOME on Linux because it will point to a host machine user home,
+      # not a home directory inside the Docker container (if it's used).
+      value: /home/$(Electron.UsePrivateNpmRegistry.UserName)
+    ${{ if in(parameters.platform, 'mac', 'mas') }}:
+      value: $(HOME)
+    ${{ if eq(parameters.platform, 'windows') }}:
+      value: $(USERPROFILE)
+
+- task: CopyFiles@2
+  displayName: Copy the .npmrc file to the user home directory
+  inputs:
+    contents: .npmrc
+    sourceFolder: ${{ parameters.srcDirectory }}/microsoft
+    targetFolder: $(Electron.UsePrivateNpmRegistry.Home)
+
+- task: npmAuthenticate@0
+  inputs:
+    workingFile: $(Electron.UsePrivateNpmRegistry.Home)/.npmrc

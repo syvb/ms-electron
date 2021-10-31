@@ -1,0 +1,20 @@
+# Build Electron Release.
+
+parameters:
+  flavour: ''
+
+jobs:
+- template: ../multi_job/build_electron_release.yml
+  parameters:
+    flavour: ${{ parameters.flavour }}
+
+- template: ../job/collect_electron_meta_data.yml
+
+- template: ../multi_job/build_ffmpeg.yml
+  parameters:
+    flavour: ${{ parameters.flavour }}
+
+- template: ../multi_job/run_javascript_tests.yml
+  parameters:
+    # It's up to developer to decide if failures are important.
+    ignoreTestFailures: true

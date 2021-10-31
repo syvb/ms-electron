@@ -1,0 +1,33 @@
+# Get higher bandwidth limits for the Chromium repositories.
+# TODO(alkuzmin): Don't use the "alkuzmin@microsoft.com" Gerrit account.
+#
+# To generate a cookie go to "https://chromium.googlesource.com/",
+# sign in with a Google account, and click "Generate Password" in the top menu.
+
+parameters:
+  platform: ''  # {'linux', 'mac', 'mas', 'windows'}
+  _cookieFilePath: $(Build.BinariesDirectory)/.gitcookies
+  _displayName: Get higher bandwidth limits for the Chromium repositories
+
+steps:
+- ${{ if in(parameters.platform, 'linux', 'mac', 'mas') }}:
+  - bash: |
+      touch "${{ parameters._cookieFilePath }}"
+      chmod 0600 "${{ parameters._cookieFilePath }}"
+
+      tr , \\t <<\__END__ >>"${{ parameters._cookieFilePath }}"
+      chromium.googlesource.com,FALSE,/,TRUE,2147483647,o,git-alkuzmin.microsoft.com=1/qDFKSGbbgQK-inrAFycQA0fk8L8rJVHRUgVW5xRYdeI
+      chromium-review.googlesource.com,FALSE,/,TRUE,2147483647,o,git-alkuzmin.microsoft.com=1/qDFKSGbbgQK-inrAFycQA0fk8L8rJVHRUgVW5xRYdeI
+      __END__
+    displayName: ${{ parameters._displayName }} (1/2)
+
+- ${{ if eq(parameters.platform, 'windows') }}:
+  - script: >-
+      powershell -noprofile -nologo -command Write-Output
+      "chromium.googlesource.com`tFALSE`t/`tTRUE`t2147483647`to`tgit-alkuzmin.microsoft.com=1/qDFKSGbbgQK-inrAFycQA0fk8L8rJVHRUgVW5xRYdeI`n
+      chromium-review.googlesource.com`tFALSE`t/`tTRUE`t2147483647`to`tgit-alkuzmin.microsoft.com=1/qDFKSGbbgQK-inrAFycQA0fk8L8rJVHRUgVW5xRYdeI"
+      >> "${{ parameters._cookieFilePath }}"
+    displayName: ${{ parameters._displayName }} (1/2)
+
+- script: git config --global http.cookiefile "${{ parameters._cookieFilePath }}"
+  displayName: ${{ parameters._displayName }} (2/2)

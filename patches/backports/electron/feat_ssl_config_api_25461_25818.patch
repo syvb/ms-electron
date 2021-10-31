@@ -1,0 +1,398 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: nikitakot <nikitakot@microsoft.com>
+Date: Mon, 14 Dec 2020 15:19:20 +0100
+Subject: feat: SSL config api (#25461 & #25818)
+
+Backport: https://github.com/electron/electron/pull/25461 & https://github.com/electron/electron/pull/25818
+
+diff --git a/docs/api/session.md b/docs/api/session.md
+index 254aa5e5a886f1c720cf3b116f21f24c000f7236..b6e1ee9aeac0b1cd5ae19faedc5ca737b8f50a62 100644
+--- a/docs/api/session.md
++++ b/docs/api/session.md
+@@ -450,6 +450,29 @@ will be temporary.
+ 
+ Returns `String` - The user agent for this session.
+ 
++#### `ses.setSSLConfig(config)`
++
++* `config` Object
++  * `minVersion` String (optional) - Can be `tls1`, `tls1.1`, `tls1.2` or `tls1.3`. The
++    minimum SSL version to allow when connecting to remote servers. Defaults to
++    `tls1`.
++  * `maxVersion` String (optional) - Can be `tls1.2` or `tls1.3`. The maximum SSL version
++    to allow when connecting to remote servers. Defaults to `tls1.3`.
++  * `disabledCipherSuites` Integer[] (optional) - List of cipher suites which
++    should be explicitly prevented from being used in addition to those
++    disabled by the net built-in policy.
++    Supported literal forms: 0xAABB, where AA is `cipher_suite[0]` and BB is
++    `cipher_suite[1]`, as defined in RFC 2246, Section 7.4.1.2. Unrecognized but
++    parsable cipher suites in this form will not return an error.
++    Ex: To disable TLS_RSA_WITH_RC4_128_MD5, specify 0x0004, while to
++    disable TLS_ECDH_ECDSA_WITH_RC4_128_SHA, specify 0xC002.
++    Note that TLSv1.3 ciphers cannot be disabled using this mechanism.
++
++Sets the SSL configuration for the session. All subsequent network requests
++will use the new configuration. Existing network connections (such as WebSocket
++connections) will not be terminated, but old sockets in the pool will not be
++reused for new connections.
++
+ #### `ses.getBlobData(identifier)`
+ 
+ * `identifier` String - Valid UUID.
+diff --git a/shell/browser/api/electron_api_session.cc b/shell/browser/api/electron_api_session.cc
+index 5c8843f9f905ed36330738b68ee6190ec47b48a2..2404be4d36ee6fa5e95fb4d2de224043f95de584 100644
+--- a/shell/browser/api/electron_api_session.cc
++++ b/shell/browser/api/electron_api_session.cc
+@@ -19,6 +19,7 @@
+ #include "base/strings/string_util.h"
+ #include "base/task/post_task.h"
+ #include "chrome/browser/browser_process.h"
++#include "chrome/common/chrome_switches.h"
+ #include "chrome/common/pref_names.h"
+ #include "components/download/public/common/download_danger_type.h"
+ #include "components/download/public/common/download_url_parameters.h"
+@@ -179,6 +180,74 @@ struct Converter<ClearStorageDataOptions> {
+   }
+ };
+ 
++bool SSLProtocolVersionFromString(const std::string& version_str,
++                                  network::mojom::SSLVersion* version) {
++  if (version_str == switches::kSSLVersionTLSv1) {
++    *version = network::mojom::SSLVersion::kTLS1;
++    return true;
++  }
++  if (version_str == switches::kSSLVersionTLSv11) {
++    *version = network::mojom::SSLVersion::kTLS11;
++    return true;
++  }
++  if (version_str == switches::kSSLVersionTLSv12) {
++    *version = network::mojom::SSLVersion::kTLS12;
++    return true;
++  }
++  if (version_str == switches::kSSLVersionTLSv13) {
++    *version = network::mojom::SSLVersion::kTLS13;
++    return true;
++  }
++  return false;
++}
++
++template <>
++struct Converter<uint16_t> {
++  static bool FromV8(v8::Isolate* isolate,
++                     v8::Local<v8::Value> val,
++                     uint16_t* out) {
++    auto maybe = val->IntegerValue(isolate->GetCurrentContext());
++    if (maybe.IsNothing())
++      return false;
++    *out = maybe.FromJust();
++    return true;
++  }
++};
++
++template <>
++struct Converter<network::mojom::SSLConfigPtr> {
++  static bool FromV8(v8::Isolate* isolate,
++                     v8::Local<v8::Value> val,
++                     network::mojom::SSLConfigPtr* out) {
++    gin_helper::Dictionary options;
++    if (!ConvertFromV8(isolate, val, &options))
++      return false;
++    *out = network::mojom::SSLConfig::New();
++    std::string version_min_str;
++    if (options.Get("minVersion", &version_min_str)) {
++      if (!SSLProtocolVersionFromString(version_min_str, &(*out)->version_min))
++        return false;
++    }
++    std::string version_max_str;
++    if (options.Get("maxVersion", &version_max_str)) {
++      if (!SSLProtocolVersionFromString(version_max_str,
++                                        &(*out)->version_max) ||
++          (*out)->version_max < network::mojom::SSLVersion::kTLS12)
++        return false;
++    }
++
++    if (options.Has("disabledCipherSuites") &&
++        !options.Get("disabledCipherSuites", &(*out)->disabled_cipher_suites)) {
++      return false;
++    }
++    std::sort((*out)->disabled_cipher_suites.begin(),
++              (*out)->disabled_cipher_suites.end());
++
++    // TODO(nornagon): also support other SSLConfig properties?
++    return true;
++  }
++};
++
+ }  // namespace gin
+ 
+ namespace electron {
+@@ -608,6 +677,10 @@ std::string Session::GetUserAgent() {
+   return browser_context_->GetUserAgent();
+ }
+ 
++void Session::SetSSLConfig(network::mojom::SSLConfigPtr config) {
++  browser_context_->SetSSLConfig(std::move(config));
++}
++
+ bool Session::IsPersistent() {
+   return !browser_context_->IsOffTheRecord();
+ }
+@@ -1002,6 +1075,7 @@ gin::ObjectTemplateBuilder Session::GetObjectTemplateBuilder(
+       .SetMethod("isPersistent", &Session::IsPersistent)
+       .SetMethod("setUserAgent", &Session::SetUserAgent)
+       .SetMethod("getUserAgent", &Session::GetUserAgent)
++      .SetMethod("setSSLConfig", &Session::SetSSLConfig)
+       .SetMethod("getBlobData", &Session::GetBlobData)
+       .SetMethod("downloadURL", &Session::DownloadURL)
+       .SetMethod("createInterruptedDownload",
+diff --git a/shell/browser/api/electron_api_session.h b/shell/browser/api/electron_api_session.h
+index 5353fe9807e67f59b43075546e04d26290a26f15..70531e40cd9c6f2c7c6ed4714cf53e3a39124d3b 100644
+--- a/shell/browser/api/electron_api_session.h
++++ b/shell/browser/api/electron_api_session.h
+@@ -13,6 +13,7 @@
+ #include "electron/buildflags/buildflags.h"
+ #include "gin/handle.h"
+ #include "gin/wrappable.h"
++#include "services/network/public/mojom/ssl_config.mojom.h"
+ #include "shell/browser/event_emitter_mixin.h"
+ #include "shell/browser/net/resolve_proxy_helper.h"
+ #include "shell/common/gin_helper/error_thrower.h"
+@@ -97,6 +98,7 @@ class Session : public gin::Wrappable<Session>,
+   void AllowNTLMCredentialsForDomains(const std::string& domains);
+   void SetUserAgent(const std::string& user_agent, gin::Arguments* args);
+   std::string GetUserAgent();
++  void SetSSLConfig(network::mojom::SSLConfigPtr config);
+   bool IsPersistent();
+   v8::Local<v8::Promise> GetBlobData(v8::Isolate* isolate,
+                                      const std::string& uuid);
+diff --git a/shell/browser/electron_browser_context.cc b/shell/browser/electron_browser_context.cc
+index 5a222963aed7309bfccc1c7c9c338ff08daf20a6..a557edec26f19199749df76516b2c7d5d747eef6 100644
+--- a/shell/browser/electron_browser_context.cc
++++ b/shell/browser/electron_browser_context.cc
+@@ -106,6 +106,7 @@ ElectronBrowserContext::ElectronBrowserContext(const std::string& partition,
+       storage_policy_(new SpecialStoragePolicy),
+       protocol_registry_(new ProtocolRegistry),
+       in_memory_(in_memory),
++      ssl_config_(network::mojom::SSLConfig::New()),
+       weak_factory_(this) {
+   // TODO(nornagon): remove once https://crbug.com/1048822 is fixed.
+   base::ScopedAllowBlockingForTesting allow_blocking;
+@@ -446,6 +447,22 @@ ResolveProxyHelper* ElectronBrowserContext::GetResolveProxyHelper() {
+   return resolve_proxy_helper_.get();
+ }
+ 
++network::mojom::SSLConfigPtr ElectronBrowserContext::GetSSLConfig() {
++  return ssl_config_.Clone();
++}
++
++void ElectronBrowserContext::SetSSLConfig(network::mojom::SSLConfigPtr config) {
++  ssl_config_ = std::move(config);
++  if (ssl_config_client_) {
++    ssl_config_client_->OnSSLConfigUpdated(ssl_config_.Clone());
++  }
++}
++
++void ElectronBrowserContext::SetSSLConfigClient(
++    mojo::Remote<network::mojom::SSLConfigClient> client) {
++  ssl_config_client_ = std::move(client);
++}
++
+ // static
+ ElectronBrowserContext* ElectronBrowserContext::From(
+     const std::string& partition,
+diff --git a/shell/browser/electron_browser_context.h b/shell/browser/electron_browser_context.h
+index fd5d1d84fedcf241f69fcfc9e85cc9a8fcf22e9b..b2520a2734aa69b1f37e1bbc3dd031fde46e396b 100644
+--- a/shell/browser/electron_browser_context.h
++++ b/shell/browser/electron_browser_context.h
+@@ -147,6 +147,10 @@ class ElectronBrowserContext
+     return protocol_registry_.get();
+   }
+ 
++  void SetSSLConfig(network::mojom::SSLConfigPtr config);
++  network::mojom::SSLConfigPtr GetSSLConfig();
++  void SetSSLConfigClient(mojo::Remote<network::mojom::SSLConfigClient> client);
++
+   ~ElectronBrowserContext() override;
+ 
+  private:
+@@ -190,6 +194,9 @@ class ElectronBrowserContext
+   scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory_;
+   mojo::Receiver<network::mojom::TrustedURLLoaderAuthClient> auth_client_{this};
+ 
++  network::mojom::SSLConfigPtr ssl_config_;
++  mojo::Remote<network::mojom::SSLConfigClient> ssl_config_client_;
++
+   base::WeakPtrFactory<ElectronBrowserContext> weak_factory_;
+ 
+   DISALLOW_COPY_AND_ASSIGN(ElectronBrowserContext);
+diff --git a/shell/browser/net/network_context_service.cc b/shell/browser/net/network_context_service.cc
+index 51a28dbd5715bd740435e4adc19150fe2b113e91..c1a7ff5c3948a57b02bf9e6fed5c279edc228a65 100644
+--- a/shell/browser/net/network_context_service.cc
++++ b/shell/browser/net/network_context_service.cc
+@@ -4,6 +4,8 @@
+ 
+ #include "shell/browser/net/network_context_service.h"
+ 
++#include <utility>
++
+ #include "chrome/common/chrome_constants.h"
+ #include "content/public/browser/network_service_instance.h"
+ #include "services/network/network_service.h"
+@@ -28,6 +30,13 @@ void NetworkContextService::ConfigureNetworkContextParams(
+   g_browser_process->system_network_context_manager()
+       ->ConfigureDefaultNetworkContextParams(network_context_params);
+ 
++  mojo::Remote<network::mojom::SSLConfigClient> ssl_config_client;
++  network_context_params->ssl_config_client_receiver =
++      ssl_config_client.BindNewPipeAndPassReceiver();
++  browser_context_->SetSSLConfigClient(std::move(ssl_config_client));
++
++  network_context_params->initial_ssl_config = browser_context_->GetSSLConfig();
++
+   network_context_params->user_agent = browser_context_->GetUserAgent();
+ 
+   network_context_params->accept_language =
+diff --git a/shell/browser/net/system_network_context_manager.cc b/shell/browser/net/system_network_context_manager.cc
+index 189774d071b0be704e93402c34a2f76e2faa4e3f..b240572db00c01adc7fb4d83934032e84f805248 100644
+--- a/shell/browser/net/system_network_context_manager.cc
++++ b/shell/browser/net/system_network_context_manager.cc
+@@ -218,6 +218,8 @@ void SystemNetworkContextManager::OnNetworkServiceCreated(
+ 
+ network::mojom::NetworkContextParamsPtr
+ SystemNetworkContextManager::CreateNetworkContextParams() {
++  auto* command_line = base::CommandLine::ForCurrentProcess();
++
+   // TODO(mmenke): Set up parameters here (in memory cookie store, etc).
+   network::mojom::NetworkContextParamsPtr network_context_params =
+       CreateDefaultNetworkContextParams();
+@@ -229,6 +231,13 @@ SystemNetworkContextManager::CreateNetworkContextParams() {
+ 
+   network_context_params->http_cache_enabled = false;
+ 
++  if (command_line->HasSwitch(
++          electron::switches::kMSBumpSystemNetworkCtxTLS12)) {
++    auto ssl_config = network::mojom::SSLConfig::New();
++    ssl_config->version_min = network::mojom::SSLVersion::kTLS12;
++    network_context_params->initial_ssl_config = std::move(ssl_config);
++  }
++
+   proxy_config_monitor_.AddToNetworkContextParams(network_context_params.get());
+ 
+   return network_context_params;
+diff --git a/shell/common/options_switches.cc b/shell/common/options_switches.cc
+index 63090cbfb32428fc3690aa9bf5beda3b1124697b..fc34a968e86eb04a99f568b3ba95ec74b6c60645 100644
+--- a/shell/common/options_switches.cc
++++ b/shell/common/options_switches.cc
+@@ -289,6 +289,8 @@ const char kEnableAuthNegotiatePort[] = "enable-auth-negotiate-port";
+ // If set, NTLM v2 is disabled for POSIX platforms.
+ const char kDisableNTLMv2[] = "disable-ntlm-v2";
+ 
++const char kMSBumpSystemNetworkCtxTLS12[] = "ms-bump-system-network-ctx-tls12";
++
+ #if BUILDFLAG(ENABLE_BUILTIN_SPELLCHECKER)
+ const char kEnableSpellcheck[] = "enable-spellcheck";
+ #endif
+diff --git a/shell/common/options_switches.h b/shell/common/options_switches.h
+index 844f190c8be62897493006ade956881a7c51f236..51327694404215e880de094f5eb121ee2d77e413 100644
+--- a/shell/common/options_switches.h
++++ b/shell/common/options_switches.h
+@@ -145,6 +145,8 @@ extern const char kAuthNegotiateDelegateWhitelist[];
+ extern const char kEnableAuthNegotiatePort[];
+ extern const char kDisableNTLMv2[];
+ 
++extern const char kMSBumpSystemNetworkCtxTLS12[];
++
+ #if BUILDFLAG(ENABLE_BUILTIN_SPELLCHECKER)
+ extern const char kEnableSpellcheck[];
+ #endif
+diff --git a/spec-main/api-session-spec.ts b/spec-main/api-session-spec.ts
+index 02792377f565523f4947e6aa182cd5a7d6ee1583..609c70344817dc59d65e7b786cc97e06cd766866 100644
+--- a/spec-main/api-session-spec.ts
++++ b/spec-main/api-session-spec.ts
+@@ -9,6 +9,7 @@ import * as send from 'send';
+ import * as auth from 'basic-auth';
+ import { closeAllWindows } from './window-helpers';
+ import { emittedOnce } from './events-helpers';
++import { defer } from './spec-helpers';
+ import { AddressInfo } from 'net';
+ 
+ /* The whole session API doesn't use standard callbacks */
+@@ -985,4 +986,56 @@ describe('session module', () => {
+       expect(session1).to.equal(session2);
+     });
+   });
++
++  describe('ses.setSSLConfig()', () => {
++    it('can disable cipher suites', async () => {
++      const ses = session.fromPartition('' + Math.random());
++      const fixturesPath = path.resolve(__dirname, '..', 'spec', 'fixtures');
++      const certPath = path.join(fixturesPath, 'certificates');
++      const server = https.createServer({
++        key: fs.readFileSync(path.join(certPath, 'server.key')),
++        cert: fs.readFileSync(path.join(certPath, 'server.pem')),
++        ca: [
++          fs.readFileSync(path.join(certPath, 'rootCA.pem')),
++          fs.readFileSync(path.join(certPath, 'intermediateCA.pem'))
++        ],
++        minVersion: 'TLSv1.2',
++        maxVersion: 'TLSv1.2',
++        ciphers: 'AES128-GCM-SHA256'
++      }, (req, res) => {
++        res.end('hi');
++      });
++      await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
++      defer(() => server.close());
++      const { port } = server.address() as AddressInfo;
++
++      function request () {
++        return new Promise((resolve, reject) => {
++          const r = net.request({
++            url: `https://127.0.0.1:${port}`,
++            session: ses
++          });
++          r.on('response', (res) => {
++            let data = '';
++            res.on('data', (chunk) => {
++              data += chunk.toString('utf8');
++            });
++            res.on('end', () => {
++              resolve(data);
++            });
++          });
++          r.on('error', (err) => {
++            reject(err);
++          });
++          r.end();
++        });
++      }
++
++      await expect(request()).to.be.rejectedWith(/ERR_CERT_AUTHORITY_INVALID/);
++      ses.setSSLConfig({
++        disabledCipherSuites: [0x009C]
++      });
++      await expect(request()).to.be.rejectedWith(/ERR_SSL_VERSION_OR_CIPHER_MISMATCH/);
++    });
++  });
+ });
+diff --git a/spec-main/spec-helpers.ts b/spec-main/spec-helpers.ts
+index 7890e220c75d7ba375c5b91243e9a46408ea666e..c454df0d9d165094299ecf1cbb60bc7c70abbe82 100644
+--- a/spec-main/spec-helpers.ts
++++ b/spec-main/spec-helpers.ts
+@@ -2,3 +2,17 @@ export const ifit = (condition: boolean) => (condition ? it : it.skip);
+ export const ifdescribe = (condition: boolean) => (condition ? describe : describe.skip);
+ 
+ export const delay = (time: number = 0) => new Promise(resolve => setTimeout(resolve, time));
++
++type CleanupFunction = (() => void) | (() => Promise<void>)
++const cleanupFunctions: CleanupFunction[] = [];
++export async function runCleanupFunctions () {
++  for (const cleanup of cleanupFunctions) {
++    const r = cleanup();
++    if (r instanceof Promise) { await r; }
++  }
++  cleanupFunctions.length = 0;
++}
++
++export function defer (f: CleanupFunction) {
++  cleanupFunctions.unshift(f);
++}

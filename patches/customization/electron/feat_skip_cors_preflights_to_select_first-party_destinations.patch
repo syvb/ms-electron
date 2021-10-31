@@ -1,0 +1,45 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Andrey Belenko <anbelen@microsoft.com>
+Date: Tue, 1 Dec 2020 13:18:27 +0100
+Subject: feat: skip CORS preflights to select first-party destinations
+
+Skip CORS preflights to select first-party destinations
+
+diff --git a/shell/browser/electron_browser_client.cc b/shell/browser/electron_browser_client.cc
+index b29bb7d7dbc3ed39e93f60b20646f9eba0c25145..e62917327b79dd34b08a59f7c524c7e2cb75db3a 100644
+--- a/shell/browser/electron_browser_client.cc
++++ b/shell/browser/electron_browser_client.cc
+@@ -168,6 +168,10 @@
+ #include "shell/browser/plugins/plugin_utils.h"
+ #endif
+ 
++#if BUILDFLAG(MICROSOFT_CORS_SKIP_PREFLIGHT)
++#include "services/network/public/cpp/cors/preflight_cache.h"
++#endif  // BUILDFLAG(MICROSOFT_CORS_SKIP_PREFLIGHT)
++
+ #if BUILDFLAG(MICROSOFT_ENABLE_WATCHDOG)
+ #include "microsoft/src/electron/shell/common/api/watchdog.h"
+ #endif
+@@ -764,10 +768,18 @@ void ElectronBrowserClient::AppendExtraCommandLineSwitches(
+       process_type == ::switches::kRendererProcess) {
+     // Copy following switches to child process.
+     static const char* const kCommonSwitchNames[] = {
+-        switches::kStandardSchemes,      switches::kEnableSandbox,
+-        switches::kSecureSchemes,        switches::kBypassCSPSchemes,
+-        switches::kCORSSchemes,          switches::kFetchSchemes,
+-        switches::kServiceWorkerSchemes, switches::kEnableApiFilteringLogging};
++      switches::kStandardSchemes,
++      switches::kEnableSandbox,
++      switches::kSecureSchemes,
++      switches::kBypassCSPSchemes,
++      switches::kCORSSchemes,
++      switches::kFetchSchemes,
++      switches::kServiceWorkerSchemes,
++      switches::kEnableApiFilteringLogging,
++#if BUILDFLAG(MICROSOFT_CORS_SKIP_PREFLIGHT)
++      network::cors::kMsTeamsLessCors,
++#endif
++    };
+     command_line->CopySwitchesFrom(*base::CommandLine::ForCurrentProcess(),
+                                    kCommonSwitchNames,
+                                    base::size(kCommonSwitchNames));

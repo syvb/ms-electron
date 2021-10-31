@@ -1,0 +1,72 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Koji Ishii <kojii@chromium.org>
+Date: Wed, 1 Jul 2020 19:44:53 +0000
+Subject: Use PostLayoutChildren in AddVisualOverflowFromFloats
+
+This patch changes |LayoutBlockFlow::
+AddVisualOverflowFromFloats| to use |PostLayoutChildren|
+to avoid reading stale fragments.
+
+DCHECKs were added in r781383 <crrev.com/c/2261092> and these
+DCHECKs do hit, but we may still read objects that were
+destroyed or moved out to different location in the tree.
+
+Also adds a few more checks to avoid crashes in dirty tree.
+
+Bug: 1101449
+Change-Id: I3a00052b0a3c86e83789eb542872299d86dbe453
+Reviewed-on: https://chromium-review.googlesource.com/c/chromium/src/+/2275167
+Reviewed-by: Xianzhu Wang <wangxianzhu@chromium.org>
+Commit-Queue: Koji Ishii <kojii@chromium.org>
+Cr-Commit-Position: refs/heads/master@{#784528}
+
+diff --git a/third_party/blink/renderer/core/layout/layout_block_flow.cc b/third_party/blink/renderer/core/layout/layout_block_flow.cc
+index ee76ca597cd6489414af7331251b86741de89c74..4550efddc991287996ec002eaa870864bf0682ac 100644
+--- a/third_party/blink/renderer/core/layout/layout_block_flow.cc
++++ b/third_party/blink/renderer/core/layout/layout_block_flow.cc
+@@ -2407,7 +2407,7 @@ void LayoutBlockFlow::AddVisualOverflowFromFloats(
+   DCHECK(!PrePaintBlockedByDisplayLock(DisplayLockLifecycleTarget::kChildren));
+   DCHECK(fragment.HasFloatingDescendantsForPaint());
+ 
+-  for (const NGLink& child : fragment.Children()) {
++  for (const NGLink& child : fragment.PostLayoutChildren()) {
+     if (child->HasSelfPaintingLayer())
+       continue;
+ 
+diff --git a/third_party/blink/renderer/core/paint/ng/ng_box_fragment_painter.cc b/third_party/blink/renderer/core/paint/ng/ng_box_fragment_painter.cc
+index 2be39a801ef67409ad592047aeb392cf8fb69a00..aa6c3c6e9900e1abb0fe45e88929005f8c296cd9 100644
+--- a/third_party/blink/renderer/core/paint/ng/ng_box_fragment_painter.cc
++++ b/third_party/blink/renderer/core/paint/ng/ng_box_fragment_painter.cc
+@@ -2214,6 +2214,8 @@ bool NGBoxFragmentPainter::HitTestBlockChildren(
+   auto children = box_fragment_.Children();
+   for (const NGLink& child : base::Reversed(children)) {
+     const auto& block_child = To<NGPhysicalBoxFragment>(*child);
++    if (UNLIKELY(block_child.IsLayoutObjectDestroyedOrMoved()))
++      continue;
+     if (block_child.HasSelfPaintingLayer() || block_child.IsFloating())
+       continue;
+ 
+@@ -2372,6 +2374,8 @@ bool NGBoxFragmentPainter::HitTestFloatingChildren(
+   auto children = container.Children();
+   for (const NGLink& child : base::Reversed(children)) {
+     const NGPhysicalFragment& child_fragment = *child.fragment;
++    if (UNLIKELY(child_fragment.IsLayoutObjectDestroyedOrMoved()))
++      continue;
+     if (child_fragment.HasSelfPaintingLayer())
+       continue;
+ 
+diff --git a/third_party/blink/renderer/core/paint/pre_paint_tree_walk.cc b/third_party/blink/renderer/core/paint/pre_paint_tree_walk.cc
+index ab5cc7560a9491c2d2af0125e3a34c2e1c928064..c4a004dbb7a18aba1dae9a697c570680bd1a3638 100644
+--- a/third_party/blink/renderer/core/paint/pre_paint_tree_walk.cc
++++ b/third_party/blink/renderer/core/paint/pre_paint_tree_walk.cc
+@@ -547,6 +547,10 @@ void PrePaintTreeWalk::WalkNGChildren(const LayoutObject* parent,
+         continue;
+       }
+     } else if (!object) {
++      const NGPhysicalBoxFragment* box_fragment = (*iterator)->BoxFragment();
++      if (UNLIKELY(box_fragment->IsLayoutObjectDestroyedOrMoved()))
++        continue;
++
+       // A fragmentainer doesn't paint anything itself. Just include its offset
+       // and descend into children.
+       DCHECK((*iterator)->BoxFragment()->IsFragmentainerBox());

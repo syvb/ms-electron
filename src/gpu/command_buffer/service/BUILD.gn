@@ -1,0 +1,16 @@
+source_set("service") {
+  sources = [
+    "buffer_manager_service.cc",
+    "buffer_manager_service.h",
+    "texture_manager_service.cc",
+    "texture_manager_service.h",
+    "utils.cc",
+    "utils.h",
+  ]
+
+  deps = [
+    "//base",
+    "//microsoft/src/skype_video:shared_memory",
+    "//ui/gl",
+  ]
+}

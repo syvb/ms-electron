@@ -1,0 +1,22 @@
+# Set a job variable on Linux, Mac, or Windows.
+# https://docs.microsoft.com/en-us/azure/devops/pipelines/process/variables?view=vsts&tabs=yaml%2Cbatch
+
+parameters:
+- name: condition
+  type: string
+  default: ''
+- name: name
+  type: string
+- name: value
+  type: string
+
+steps:
+- template: log_command.yml
+  parameters:
+    action: task.setvariable
+    ${{ if ne(parameters.condition, '') }}:
+      condition: ${{ parameters.condition }}
+    displayName: Set ${{ parameters.name }} variable to "${{ parameters.value }}"
+    message: ${{ parameters.value }}
+    properties:
+    - variable=${{ parameters.name }}

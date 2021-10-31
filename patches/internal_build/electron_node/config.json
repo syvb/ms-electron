@@ -1,0 +1,3 @@
+{
+  "src/microsoft/patches/internal_build/electron_node": "src/third_party/electron_node"
+}

@@ -1,0 +1,85 @@
+<h1><strong>Electron v{{ electron.version }}</strong></h1>
+<p>
+</p>
+<p>
+</p>
+<table cellspacing="0" class="ms-rteTable-default">
+  <tbody>
+    <tr class="ms-rteTableEvenRow-default">
+      <td class="ms-rteTableEvenCol-default">
+        <br />
+      </td>
+      <td class="ms-rteTableOddCol-default">Windows ARM64</td>
+      <td class="ms-rteTableEvenCol-default">Windows 32-bit</td>
+      <td class="ms-rteTableOddCol-default">Windows 64-bit</td>
+      <td class="ms-rteTableEvenCol-default">macOS 64-bit</td>
+      <td class="ms-rteTableOddCol-default">Linux ARM</td>
+      <td class="ms-rteTableEvenCol-default">Linux ARM64</td>
+      <td class="ms-rteTableOddCol-default">Linux 64-bit</td>
+    </tr>
+{% for build in electron.builds %}
+    <tr class="ms-{% if loop.index is divisibleby 2 %}rteTableEvenRow{% else %}rteTableOddRow{% endif %}-default">
+      <td class="ms-rteTableEvenCol-default">
+        "{{ build.flavour }}" flavour, build number <strong>{{ build.id }}</strong><br />
+        {{ build.description }}<br />
+        <a href="{{ electron.base_url }}/{{ electron.version }}/{{ build.flavour }}/{{ build.id }}/electron.d.ts">TypeScript Typings</a><br />
+        <a href="{{ electron.base_url }}/{{ electron.version }}/{{ build.flavour }}/{{ build.id }}/hunspell_dictionaries.zip">Hunspell dictionaries</a><br />
+      </td>
+      <td class="ms-rteTableOddCol-default">
+        <a href="{{ electron.base_url }}/{{ electron.version }}/{{ build.flavour }}/{{ build.id }}/electron-v{{ electron.version }}-win32-arm64.zip">electron</a><br />
+        <a href="{{ electron.base_url }}/{{ electron.version }}/{{ build.flavour }}/{{ build.id }}/electron-v{{ electron.version }}-win32-arm64-pdb.zip">pdb</a><br />
+        <a href="{{ electron.base_url }}/{{ electron.version }}/{{ build.flavour }}/{{ build.id }}/electron-v{{ electron.version }}-win32-arm64-symbols.zip">symbols</a><br />
+        <a href="{{ electron.base_url }}/{{ electron.version }}/{{ build.flavour }}/{{ build.id }}/mksnapshot-v{{ electron.version }}-win32-arm64.zip">mksnapshot</a><br />
+        <a href="{{ electron.base_url }}/{{ electron.version }}/{{ build.flavour }}/{{ build.id }}/chromedriver-v{{ electron.version }}-win32-arm64.zip">chromedriver</a>
+      </td>
+      <td class="ms-rteTableEvenCol-default">
+        <a href="{{ electron.base_url }}/{{ electron.version }}/{{ build.flavour }}/{{ build.id }}/electron-v{{ electron.version }}-win32-ia32.zip">electron</a><br />
+        <a href="{{ electron.base_url }}/{{ electron.version }}/{{ build.flavour }}/{{ build.id }}/electron-v{{ electron.version }}-win32-ia32-pdb.zip">pdb</a><br />
+        <a href="{{ electron.base_url }}/{{ electron.version }}/{{ build.flavour }}/{{ build.id }}/electron-v{{ electron.version }}-win32-ia32-symbols.zip">symbols</a><br />
+        <a href="{{ electron.base_url }}/{{ electron.version }}/{{ build.flavour }}/{{ build.id }}/mksnapshot-v{{ electron.version }}-win32-ia32.zip">mksnapshot</a><br />
+        <a href="{{ electron.base_url }}/{{ electron.version }}/{{ build.flavour }}/{{ build.id }}/chromedriver-v{{ electron.version }}-win32-ia32.zip">chromedriver</a>
+      </td>
+      <td class="ms-rteTableOddCol-default">
+        <a href="{{ electron.base_url }}/{{ electron.version }}/{{ build.flavour }}/{{ build.id }}/electron-v{{ electron.version }}-win32-x64.zip">electron</a><br />
+        <a href="{{ electron.base_url }}/{{ electron.version }}/{{ build.flavour }}/{{ build.id }}/electron-v{{ electron.version }}-win32-x64-pdb.zip">pdb</a><br />
+        <a href="{{ electron.base_url }}/{{ electron.version }}/{{ build.flavour }}/{{ build.id }}/electron-v{{ electron.version }}-win32-x64-symbols.zip">symbols</a><br />
+        <a href="{{ electron.base_url }}/{{ electron.version }}/{{ build.flavour }}/{{ build.id }}/mksnapshot-v{{ electron.version }}-win32-x64.zip">mksnapshot</a><br />
+        <a href="{{ electron.base_url }}/{{ electron.version }}/{{ build.flavour }}/{{ build.id }}/chromedriver-v{{ electron.version }}-win32-x64.zip">chromedriver</a>
+      </td>
+      <td class="ms-rteTableEvenCol-default">
+        <a href="{{ electron.base_url }}/{{ electron.version }}/{{ build.flavour }}/{{ build.id }}/electron-v{{ electron.version }}-darwin-x64.zip">electron</a><br />
+        <a href="{{ electron.base_url }}/{{ electron.version }}/{{ build.flavour }}/{{ build.id }}/electron-v{{ electron.version }}-darwin-x64-dsym.zip">dsym</a><br />
+        <a href="{{ electron.base_url }}/{{ electron.version }}/{{ build.flavour }}/{{ build.id }}/electron-v{{ electron.version }}-darwin-x64-symbols.zip">symbols</a><br />
+        <a href="{{ electron.base_url }}/{{ electron.version }}/{{ build.flavour }}/{{ build.id }}/mksnapshot-v{{ electron.version }}-darwin-x64.zip">mksnapshot</a><br />
+        <a href="{{ electron.base_url }}/{{ electron.version }}/{{ build.flavour }}/{{ build.id }}/chromedriver-v{{ electron.version }}-darwin-x64.zip">chromedriver</a>
+      </td>
+      <td class="ms-rteTableOddCol-default">
+        <a href="{{ electron.base_url }}/{{ electron.version }}/{{ build.flavour }}/{{ build.id }}/electron-v{{ electron.version }}-linux-armv7l.zip">electron</a><br />
+        <a href="{{ electron.base_url }}/{{ electron.version }}/{{ build.flavour }}/{{ build.id }}/electron-v{{ electron.version }}-linux-armv7l-dbg.zip">dbg</a><br />
+        <a href="{{ electron.base_url }}/{{ electron.version }}/{{ build.flavour }}/{{ build.id }}/electron-v{{ electron.version }}-linux-armv7l-symbols.zip">symbols</a><br />
+        <a href="{{ electron.base_url }}/{{ electron.version }}/{{ build.flavour }}/{{ build.id }}/mksnapshot-v{{ electron.version }}-linux-armv7l.zip">mksnapshot</a><br />
+        <a href="{{ electron.base_url }}/{{ electron.version }}/{{ build.flavour }}/{{ build.id }}/chromedriver-v{{ electron.version }}-linux-armv7l.zip">chromedriver</a>
+      </td>
+      <td class="ms-rteTableEvenCol-default">
+        <a href="{{ electron.base_url }}/{{ electron.version }}/{{ build.flavour }}/{{ build.id }}/electron-v{{ electron.version }}-linux-arm64.zip">electron</a><br />
+        <a href="{{ electron.base_url }}/{{ electron.version }}/{{ build.flavour }}/{{ build.id }}/electron-v{{ electron.version }}-linux-arm64-dbg.zip">dbg</a><br />
+        <a href="{{ electron.base_url }}/{{ electron.version }}/{{ build.flavour }}/{{ build.id }}/electron-v{{ electron.version }}-linux-arm64-symbols.zip">symbols</a><br />
+        <a href="{{ electron.base_url }}/{{ electron.version }}/{{ build.flavour }}/{{ build.id }}/mksnapshot-v{{ electron.version }}-linux-arm64.zip">mksnapshot</a><br />
+        <a href="{{ electron.base_url }}/{{ electron.version }}/{{ build.flavour }}/{{ build.id }}/chromedriver-v{{ electron.version }}-linux-arm64.zip">chromedriver</a>
+      </td>
+      <td class="ms-rteTableOddCol-default">
+        <a href="{{ electron.base_url }}/{{ electron.version }}/{{ build.flavour }}/{{ build.id }}/electron-v{{ electron.version }}-linux-x64.zip">electron</a><br />
+        <a href="{{ electron.base_url }}/{{ electron.version }}/{{ build.flavour }}/{{ build.id }}/electron-v{{ electron.version }}-linux-x64-dbg.zip">dbg</a><br />
+        <a href="{{ electron.base_url }}/{{ electron.version }}/{{ build.flavour }}/{{ build.id }}/electron-v{{ electron.version }}-linux-x64-symbols.zip">symbols</a><br />
+        <a href="{{ electron.base_url }}/{{ electron.version }}/{{ build.flavour }}/{{ build.id }}/mksnapshot-v{{ electron.version }}-linux-x64.zip">mksnapshot</a><br />
+        <a href="{{ electron.base_url }}/{{ electron.version }}/{{ build.flavour }}/{{ build.id }}/chromedriver-v{{ electron.version }}-linux-x64.zip">chromedriver</a>
+      </td>
+    </tr>
+{% endfor %}
+  </tbody>
+</table>
+<br />
+<br />
+<span class="ms-rteThemeForeColor-9-0"><strong>
+  Important: If you use a version of Electron with proprietary FFmpeg codecs, you will need to pay royalties. Contact us for more info.
+</strong></span>

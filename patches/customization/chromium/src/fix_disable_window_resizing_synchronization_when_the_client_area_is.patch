@@ -1,0 +1,21 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Milan Burda <miburda@microsoft.com>
+Date: Mon, 22 Jun 2020 17:46:28 +0200
+Subject: fix: disable window resizing synchronization when the client area is
+ empty on Mac
+
+Microsoft patch
+
+diff --git a/components/remote_cocoa/app_shim/native_widget_ns_window_bridge.mm b/components/remote_cocoa/app_shim/native_widget_ns_window_bridge.mm
+index badc4323b910f8e3957583e05af303472cb204f6..54378761f0d241e39e79cdd74e86bb87f7601c80 100644
+--- a/components/remote_cocoa/app_shim/native_widget_ns_window_bridge.mm
++++ b/components/remote_cocoa/app_shim/native_widget_ns_window_bridge.mm
+@@ -1141,6 +1141,8 @@ bool NativeWidgetNSWindowBridge::ShouldWaitInPreCommit() {
+     return false;
+   if (!bridged_view_)
+     return false;
++  if (content_dip_size_.IsEmpty())
++    return false;
+   return content_dip_size_ != compositor_frame_dip_size_;
+ }
+ 

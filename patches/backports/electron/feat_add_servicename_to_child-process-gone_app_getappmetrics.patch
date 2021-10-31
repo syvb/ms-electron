@@ -1,0 +1,142 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Milan Burda <milan.burda@gmail.com>
+Date: Mon, 19 Oct 2020 13:55:47 +0200
+Subject: feat: add serviceName to 'child-process-gone' / app.getAppMetrics()
+ (#25975)
+
+Backport: https://github.com/electron/electron/pull/25975
+
+diff --git a/docs/api/app.md b/docs/api/app.md
+index f58ebbd2f839bfc1fa4249227c88d0cf0e22b606..a7d59d710795c8a627ca732d97441649fe66e953 100644
+--- a/docs/api/app.md
++++ b/docs/api/app.md
+@@ -423,6 +423,7 @@ Returns:
+     * `integrity-failure` - Windows code integrity checks failed
+   * `exitCode` Number - The exit code for the process
+       (e.g. status from waitpid if on posix, from GetExitCodeProcess on Windows).
++  * `serviceName` String (optional) - The non-localized name of the process.
+   * `name` String (optional) - The name of the process. i.e. for plugins it might be Flash.
+     Examples for utility: `Audio Service`, `Content Decryption Module Service`, `Network Service`, `Video Capture`, etc.
+ 
+diff --git a/docs/api/structures/process-metric.md b/docs/api/structures/process-metric.md
+index 446051716daa6d4b68334b9e2e92e697be43f5bf..d0cd9cd513bc22084d4b43e3f1be26916e3674da 100644
+--- a/docs/api/structures/process-metric.md
++++ b/docs/api/structures/process-metric.md
+@@ -11,6 +11,7 @@
+   * `Pepper Plugin`
+   * `Pepper Plugin Broker`
+   * `Unknown`
++* `serviceName` String (optional) - The non-localized name of the process.
+ * `name` String (optional) - The name of the process. i.e. for plugins it might be Flash.
+     Examples for utility: `Audio Service`, `Content Decryption Module Service`, `Network Service`, `Video Capture`, etc.
+ * `cpu` [CPUUsage](cpu-usage.md) - CPU usage of the process.
+diff --git a/shell/browser/api/electron_api_app.cc b/shell/browser/api/electron_api_app.cc
+index 1a13025ed53932f19cbbf95f98066de0d449baee..ed091f12af710bb9f9e514583708855d9679838f 100644
+--- a/shell/browser/api/electron_api_app.cc
++++ b/shell/browser/api/electron_api_app.cc
+@@ -786,7 +786,7 @@ void App::OnGpuProcessCrashed(base::TerminationStatus status) {
+ void App::BrowserChildProcessLaunchedAndConnected(
+     const content::ChildProcessData& data) {
+   ChildProcessLaunched(data.process_type, data.GetProcess().Handle(),
+-                       base::UTF16ToUTF8(data.name));
++                       data.metrics_name, base::UTF16ToUTF8(data.name));
+ }
+ 
+ void App::BrowserChildProcessHostDisconnected(
+@@ -816,6 +816,7 @@ void App::BrowserChildProcessCrashedOrKilled(
+   details.Set("type", content::GetProcessTypeNameInEnglish(data.process_type));
+   details.Set("reason", info.status);
+   details.Set("exitCode", info.exit_code);
++  details.Set("serviceName", data.metrics_name);
+   if (!data.name.empty()) {
+     details.Set("name", data.name);
+   }
+@@ -844,6 +845,7 @@ void App::RenderProcessDisconnected(base::ProcessId host_pid) {
+ 
+ void App::ChildProcessLaunched(int process_type,
+                                base::ProcessHandle handle,
++                               const std::string& service_name,
+                                const std::string& name) {
+   auto pid = base::GetProcId(handle);
+ 
+@@ -854,7 +856,7 @@ void App::ChildProcessLaunched(int process_type,
+   auto metrics = base::ProcessMetrics::CreateProcessMetrics(handle);
+ #endif
+   app_metrics_[pid] = std::make_unique<electron::ProcessMetric>(
+-      process_type, handle, std::move(metrics), name);
++      process_type, handle, std::move(metrics), service_name, name);
+ }
+ 
+ void App::ChildProcessDisconnected(base::ProcessId pid) {
+@@ -1295,6 +1297,10 @@ std::vector<gin_helper::Dictionary> App::GetAppMetrics(v8::Isolate* isolate) {
+     pid_dict.Set("creationTime",
+                  process_metric.second->process.CreationTime().ToJsTime());
+ 
++    if (!process_metric.second->service_name.empty()) {
++      pid_dict.Set("serviceName", process_metric.second->service_name);
++    }
++
+     if (!process_metric.second->name.empty()) {
+       pid_dict.Set("name", process_metric.second->name);
+     }
+diff --git a/shell/browser/api/electron_api_app.h b/shell/browser/api/electron_api_app.h
+index f8209590f42ddde5e49bdd0b426c2113e3c79306..e7655ef11db510aadc35df8db5a8a3c258964792 100644
+--- a/shell/browser/api/electron_api_app.h
++++ b/shell/browser/api/electron_api_app.h
+@@ -163,6 +163,7 @@ class App : public ElectronBrowserClient::Delegate,
+   void SetAppPath(const base::FilePath& app_path);
+   void ChildProcessLaunched(int process_type,
+                             base::ProcessHandle handle,
++                            const std::string& service_name = std::string(),
+                             const std::string& name = std::string());
+   void ChildProcessDisconnected(base::ProcessId pid);
+ 
+diff --git a/shell/browser/api/process_metric.cc b/shell/browser/api/process_metric.cc
+index f5f096dc341c0975dca5351039fc1f5c3a91879c..c26cf8f96428def565944bf12ddcb8aa88ad1f50 100644
+--- a/shell/browser/api/process_metric.cc
++++ b/shell/browser/api/process_metric.cc
+@@ -53,9 +53,11 @@ namespace electron {
+ ProcessMetric::ProcessMetric(int type,
+                              base::ProcessHandle handle,
+                              std::unique_ptr<base::ProcessMetrics> metrics,
++                             const std::string& service_name,
+                              const std::string& name) {
+   this->type = type;
+   this->metrics = std::move(metrics);
++  this->service_name = service_name;
+   this->name = name;
+ 
+ #if defined(OS_WIN)
+diff --git a/shell/browser/api/process_metric.h b/shell/browser/api/process_metric.h
+index 2cbeba88ab5787aca61ca40f2ba3764f167b07c7..1f35a39860e240fd9b3eab1751f56205a7b95c91 100644
+--- a/shell/browser/api/process_metric.h
++++ b/shell/browser/api/process_metric.h
+@@ -38,11 +38,13 @@ struct ProcessMetric {
+   int type;
+   base::Process process;
+   std::unique_ptr<base::ProcessMetrics> metrics;
++  std::string service_name;
+   std::string name;
+ 
+   ProcessMetric(int type,
+                 base::ProcessHandle handle,
+                 std::unique_ptr<base::ProcessMetrics> metrics,
++                const std::string& service_name = std::string(),
+                 const std::string& name = std::string());
+   ~ProcessMetric();
+ 
+diff --git a/spec-main/api-app-spec.ts b/spec-main/api-app-spec.ts
+index 57ecbb6a2f0f129afe1befc0fdc58050769457a5..282050d6ca3d81d1303cf64bff2f03790d8b5901 100644
+--- a/spec-main/api-app-spec.ts
++++ b/spec-main/api-app-spec.ts
+@@ -1077,6 +1077,10 @@ describe('app module', () => {
+         expect(entry.memory).to.have.property('workingSetSize').that.is.greaterThan(0);
+         expect(entry.memory).to.have.property('peakWorkingSetSize').that.is.greaterThan(0);
+ 
++        if (entry.type === 'Utility' || entry.type === 'GPU') {
++          expect(entry.serviceName).to.be.a('string').that.does.not.equal('');
++        }
++
+         if (entry.type === 'Utility') {
+           expect(entry).to.have.property('name').that.is.a('string');
+         }

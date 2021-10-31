@@ -1,0 +1,22 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Aleksei Kuzmin <alkuzmin@microsoft.com>
+Date: Fri, 25 Oct 2019 15:09:28 +0300
+Subject: test: do not fail for empty set of runners
+
+Microsoft patch
+
+diff --git a/script/spec-runner.js b/script/spec-runner.js
+index 4d9915b81698eb254f2a07690218e2c8ae3f4407..39600c731be05d1266309bc32d5fd9e9cbaa588d 100755
+--- a/script/spec-runner.js
++++ b/script/spec-runner.js
+@@ -46,7 +46,9 @@ if (args.runners) {
+   runnersToRun = args.runners.split(',');
+   if (!runnersToRun.every(r => [...runners.keys()].includes(r))) {
+     console.log(`${fail} ${runnersToRun} must be a subset of [${[...runners.keys()].join(' | ')}]`);
+-    process.exit(1);
++    // FIXME(alkuzmin): Make it possible to just build native Node modules without running any tests.
++    // Right now it is done by running this script with "--runners=," that fails on the next line.
++    // process.exit(1);
+   }
+   console.log('Only running:', runnersToRun);
+ } else {

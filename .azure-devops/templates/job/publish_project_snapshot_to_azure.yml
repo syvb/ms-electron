@@ -1,0 +1,32 @@
+# Publish a project snapshot to an Azure storage.
+
+parameters:
+  buildId: ''  # An id of a build that created the snapshot. An empty string stands for the current build.
+  container: source-bundles  # An Azure blob container name.
+  _artifactsToDownload:
+  - 'project snapshot linux'
+  - 'project snapshot mac'
+  - 'project snapshot windows'
+  _stagingDirectory: $(Build.ArtifactStagingDirectory)
+
+jobs:
+- job: publish_project_snapshot_to_azure
+  displayName: Publish project snapshot to Azure
+  timeoutInMinutes: 30
+  pool:
+    vmImage: vs2017-win2016
+  steps:
+  - ${{ each artifactName in parameters._artifactsToDownload }}:
+    - task: DownloadPipelineArtifact@0
+      displayName: Download ${{ artifactName }}
+      inputs:
+        pipelineId: ${{ parameters.buildId }}
+        artifactName: ${{ artifactName }}
+        targetPath: ${{ parameters._stagingDirectory }}
+
+  - template: ../action/upload_to_azure.yml
+    parameters:
+      containerName: ${{ parameters.container }}
+      displayName: Upload build ${{ parameters.buildId }} to "electron"
+      sourcePath: ${{ parameters._stagingDirectory }}/*
+      storage: electron

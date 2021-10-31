@@ -1,0 +1,81 @@
+# A cross-platform build of Electron from a project snapshot.
+
+parameters:
+  arch: ''  # {'arm64', 'x64', 'x86'}
+  flavour: ''
+  platform: ''  # {'linux', 'mac', 'windows'}
+  _buildDirectory: out/default
+  _buildType: release
+  _workingDirectory: $(Build.BinariesDirectory)
+
+jobs:
+- template: ../executor/builder.yml
+  parameters:
+    jobId: build_electron_from_snapshot_${{ parameters.platform }}_${{ parameters.arch }}
+    displayName: Electron from snapshot ${{ parameters.platform }} ${{ parameters.arch }}
+    platform: ${{ parameters.platform }}
+    timeoutInMinutes: 240
+    dependsOn: build_project_snapshot_${{ parameters.platform }}
+    steps:
+    - template: ../action/checkout_self.yml
+
+    - task: DownloadPipelineArtifact@0
+      displayName: Download a project snapshot
+      inputs:
+        artifactName: 'project snapshot ${{ parameters.platform }}'
+        targetPath: ${{ parameters._workingDirectory }}
+
+    - task: ExtractFiles@1
+      displayName: Extract the snapshot contents
+      inputs:
+        archiveFilePatterns: ${{ parameters._workingDirectory }}/*.tgz
+        destinationFolder: ${{ parameters._workingDirectory }}
+        cleanDestinationFolder: false
+
+    # Add depot tools to PATH to be able to use `gn` and `ninja`.
+    - template: ../action/add_to_path.yml
+      parameters:
+        name: depot tools
+        directory: ${{ parameters._workingDirectory }}/depot_tools
+        platform: ${{ parameters.platform }}
+        prepend: false
+
+    - template: ../action/gn_gen.yml
+      parameters:
+        arch: ${{ parameters.arch }}
+        # Use the same `microsoft_build_version` as for release builds.
+        # We're going to compare a build from a snapshot with a normal release build.
+        args: >
+          microsoft_build_version="\"$(Build.BuildId)\""
+        buildDirectory: ${{ parameters._buildDirectory }}
+        buildType: ${{ parameters._buildType }}
+        flavour: ${{ parameters.flavour }}
+        srcDirectory: ${{ parameters._workingDirectory }}/src
+
+    - template: ../action/ninja.yml
+      parameters:
+        buildDirectory: ${{ parameters._workingDirectory }}/src/${{ parameters._buildDirectory }}
+        displayName: Build an Electron binary
+        target: electron
+
+    - ${{ if eq(parameters.platform, 'linux') }}:
+      # (alkuzmin): Stripping has to be done before we create an Electron archive.
+      - template: ../action/strip_linux_binary.yml
+        parameters:
+          arch: ${{ parameters.arch }}
+          directory: ${{ parameters._buildDirectory }}
+          srcDirectory: ${{ parameters._workingDirectory }}/src
+
+    - template: ../action/ninja.yml
+      parameters:
+        buildDirectory: ${{ parameters._workingDirectory }}/src/${{ parameters._buildDirectory }}
+        displayName: Create an Electron archive
+        target: electron:electron_dist_zip
+
+    - template: ../action/copy_artifact.yml
+      parameters:
+        file: dist.zip
+        sourceFolder: ${{ parameters._workingDirectory }}/src/${{ parameters._buildDirectory }}
+
+    - publish: $(Build.ArtifactStagingDirectory)
+      artifact: 'electron from snapshot ${{ parameters.platform }} ${{ parameters.arch }}'

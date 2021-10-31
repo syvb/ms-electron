@@ -1,0 +1,47 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jeremy Rose <jeremya@chromium.org>
+Date: Mon, 8 Feb 2021 17:08:11 -0800
+Subject: feat: add exit code to render-process-gone details (#27580)
+
+Backport: https://github.com/electron/electron/pull/27580
+
+diff --git a/docs/api/app.md b/docs/api/app.md
+index 90bf339a21aa49f0ace2c95856541bb4275cdf79..1eed14be5b592301df16db7ca2dc25059a29a1a5 100644
+--- a/docs/api/app.md
++++ b/docs/api/app.md
+@@ -395,6 +395,9 @@ Returns:
+     * `oom` - Process ran out of memory
+     * `launch-failed` - Process never successfully launched
+     * `integrity-failure` - Windows code integrity checks failed
++  * `exitCode` Integer - The exit code of the process, unless `reason` is
++    `launch-failed`, in which case `exitCode` will be a platform-specific
++    launch failure error code.
+ 
+ Emitted when the renderer process unexpectedly dissapears.  This is normally
+ because it was crashed or killed.
+diff --git a/docs/api/web-contents.md b/docs/api/web-contents.md
+index b65383bc3422a604acc27abad021c60e9c076cb7..a564f59785de0f607422172184b483cd4bd18612 100644
+--- a/docs/api/web-contents.md
++++ b/docs/api/web-contents.md
+@@ -366,6 +366,9 @@ Returns:
+     * `oom` - Process ran out of memory
+     * `launch-failed` - Process never successfully launched
+     * `integrity-failure` - Windows code integrity checks failed
++  * `exitCode` Integer - The exit code of the process, unless `reason` is
++    `launch-failed`, in which case `exitCode` will be a platform-specific
++    launch failure error code.
+ 
+ Emitted when the renderer process unexpectedly dissapears.  This is normally
+ because it was crashed or killed.
+diff --git a/shell/browser/api/electron_api_web_contents.cc b/shell/browser/api/electron_api_web_contents.cc
+index dccfcd2ecf021e07bcfb6ddeee852ff06b6a4f2e..a39954667cf144b1cac94b095659d85e345891cb 100644
+--- a/shell/browser/api/electron_api_web_contents.cc
++++ b/shell/browser/api/electron_api_web_contents.cc
+@@ -1124,6 +1124,7 @@ void WebContents::RenderProcessGone(base::TerminationStatus status) {
+   gin_helper::Dictionary details =
+       gin_helper::Dictionary::CreateEmpty(isolate());
+   details.Set("reason", status);
++  details.Set("exitCode", web_contents()->GetCrashedErrorCode());
+   Emit("render-process-gone", details);
+ }
+ 

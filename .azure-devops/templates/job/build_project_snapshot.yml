@@ -1,0 +1,101 @@
+parameters:
+- name: platform
+  type: string
+  values: ['linux', 'mac', 'windows']
+- name: _workingDirectory
+  type: string
+  default: $(Build.BinariesDirectory)
+
+jobs:
+- job: build_project_snapshot_${{ parameters.platform }}
+  displayName: Project snapshot on ${{ parameters.platform }}
+  timeoutInMinutes: 150
+  pool:
+    ${{ if eq(parameters.platform, 'linux') }}:
+      # Microsoft-hosted agents don't have enough disk space.
+      name: Electron Linux
+    ${{ if eq(parameters.platform, 'mac') }}:
+      vmImage: macOS-10.14
+    ${{ if eq(parameters.platform, 'windows') }}:
+      # Microsoft-hosted agents don't have enough disk space.
+      name: Electron Windows
+  steps:
+  - template: ../action/setup_agent.yml
+    parameters:
+      platform: ${{ parameters.platform }}
+      ${{ if in(parameters.platform, 'linux', 'windows') }}:
+        usePython: false
+
+  - template: ../action/checkout_electron.yml
+    parameters:
+      platform: ${{ parameters.platform }}
+      ${{ if in(parameters.platform, 'linux', 'windows') }}:
+        gitCacheDirectory: $(Agent.WorkFolder)/.git-cache
+      saveGclientConfig: false
+      workingDirectory: ${{ parameters._workingDirectory }}
+
+  # Some files and directories should not be published.
+  - template: ../action/delete_files.yml
+    parameters:
+      rootDirectory: ${{ parameters._workingDirectory }}
+      directories: >-
+        .azure-devops
+        .sdl
+        src/.git
+        src/electron/.git
+        src/microsoft/.git
+        src/third_party/electron_node/.git
+      files: >-
+        src/microsoft/.npmrc
+
+  - template: ../action/capture_output.yml
+    parameters:
+      command: python scripts/electron_version.py --from-microsoft-deps
+      variable: Electron.Local.Version
+      workingDirectory: ${{ parameters._workingDirectory }}/src/microsoft
+
+  - template: ../action/set_variable.yml
+    parameters:
+      name: Electron.Local.VersionAndRevision
+      value: $(Electron.Local.Version)-$(Build.SourceVersion)
+
+  - template: ../action/set_variable.yml
+    parameters:
+      name: Electron.Local.ArchiveName
+      # E.g. "microsoft-electron-v6.0.1-63d3687d2792cff440358dddc3864fddd09c88b6-windows".
+      value: microsoft-electron-$(Electron.Local.VersionAndRevision)-${{ parameters.platform }}
+
+  - task: ArchiveFiles@2
+    displayName: Create a working directory archive
+    inputs:
+      rootFolderOrFile: ${{ parameters._workingDirectory }}
+      includeRootFolder: false
+      # The site, where archives are going to published on, accepts only "*.zip" and "*.tgz" files.
+      # We've run into issues building from (unpacked) zip archives, so we have only one option here.
+      # Also the archives extension has to be ".tgz" and not ".tar.gz".
+      archiveType: tar
+      tarCompression: gz
+      archiveFile: $(Build.ArtifactStagingDirectory)/$(Electron.Local.ArchiveName).tgz
+
+  - publish: $(Build.ArtifactStagingDirectory)
+    artifact: project snapshot ${{ parameters.platform }}
+
+  # This a solution/workaround for a repo checkout issue that happens on Linux agents.
+  # Here's a scenario that leads to a git checkout failure:
+  # 1) A build without a Docker container is run on a machine.
+  # 2) Then a build that uses a Docker container is run on the same machine.
+  # 3) The project repo checkout fails for the second build with an auth-related error.
+  #
+  # It happens because the first build added an auth token to the global git configuration
+  # to make it possible to checkout dependencies via gclient. The second build tries
+  # to clean up those credentials but fails to do so because all its git commands are run
+  # inside a Docker container. Then the second repo checkout happens on the host machine
+  # (outside of the container) using a modified git configuration
+  # and the checkout fails because the auth token has already expired.
+  #
+  # This job is the only one that runs on Linux without a Docker container.
+  # Let's clean up git credentials at its end. This step should always be executed.
+  - ${{ if eq(parameters.platform, 'linux') }}:
+    - template: ../action/erase_git_credentials.yml
+      parameters:
+        condition: true

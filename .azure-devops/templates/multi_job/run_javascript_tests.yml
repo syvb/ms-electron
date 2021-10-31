@@ -1,0 +1,43 @@
+parameters:
+# An id of a build that produced Electron binaries. Zero stands for the current build.
+- name: buildId
+  type: number
+  default: 0
+- name: ignoreTestFailures
+  type: boolean
+  default: false
+- name: _builds
+  type: object
+  default:
+  - arch: x64
+    platform: linux
+    testOn:
+    - ''  # whatever
+  - arch: x64
+    platform: mac
+    testOn:
+    - Catalina
+    - Mojave
+  # TODO(alkuzmin): Fix the agents and enable back.
+  # - arch: arm64
+  #   platform: windows
+  #   testOn:
+  #   - Windows10_ARM64
+  - arch: x64
+    platform: windows
+    testOn:
+    - Windows10
+  - arch: x86
+    platform: windows
+    testOn:
+    - Windows10
+jobs:
+- ${{ each build in parameters._builds }}:
+  - ${{ each osVersion in build.testOn }}:
+    - template: ../job/run_javascript_tests.yml
+      parameters:
+        arch: ${{ build.arch }}
+        buildId: ${{ parameters.buildId }}
+        ignoreTestFailures: ${{ parameters.ignoreTestFailures }}
+        osVersion: ${{ osVersion }}
+        platform: ${{ build.platform }}

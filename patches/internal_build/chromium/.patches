@@ -1,0 +1,2 @@
+build_use_linux_sysroots_from_an_internal_storage.patch
+fix-ffmpeg-codec-support.patch

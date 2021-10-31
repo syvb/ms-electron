@@ -1,0 +1,27 @@
+enum ScalingMode {
+    "stretch",
+    "crop",
+    "fit"
+};
+
+[
+    Exposed=Window,
+    HTMLConstructor,
+    ActiveScriptWrappable
+] interface HTMLSkypeVideoElement : HTMLVideoElement {
+    const unsigned short API_VERSION = 2;
+
+    readonly attribute unsigned long videoWidth;
+    readonly attribute unsigned long videoHeight;
+
+    readonly attribute unsigned long rendererWidth;
+    readonly attribute unsigned long rendererHeight;
+
+    readonly attribute boolean backgroundRendering;
+    readonly attribute boolean textureSharingSupported;
+
+    attribute ScalingMode scalingMode;
+    attribute boolean bufferSharingEnabled;
+
+    [RaisesException] void loadSync(DOMString bufferName);
+};

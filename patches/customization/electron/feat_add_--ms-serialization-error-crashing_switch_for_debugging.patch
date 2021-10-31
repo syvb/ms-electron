@@ -1,0 +1,72 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Milan Burda <miburda@microsoft.com>
+Date: Thu, 11 Feb 2021 14:39:22 +0100
+Subject: feat: add --ms-serialization-error-crashing switch for debugging
+
+Microsoft patch
+
+diff --git a/shell/browser/electron_browser_client.cc b/shell/browser/electron_browser_client.cc
+index e62917327b79dd34b08a59f7c524c7e2cb75db3a..1af314ad935f16b44c9e563ab24496229548d483 100644
+--- a/shell/browser/electron_browser_client.cc
++++ b/shell/browser/electron_browser_client.cc
+@@ -776,6 +776,7 @@ void ElectronBrowserClient::AppendExtraCommandLineSwitches(
+       switches::kFetchSchemes,
+       switches::kServiceWorkerSchemes,
+       switches::kEnableApiFilteringLogging,
++      switches::kSerializationErrorCrashing,
+ #if BUILDFLAG(MICROSOFT_CORS_SKIP_PREFLIGHT)
+       network::cors::kMsTeamsLessCors,
+ #endif
+diff --git a/shell/common/options_switches.cc b/shell/common/options_switches.cc
+index 51fde62da4dfdc73b4122b0f41078d318a35de35..8566cacfa61579190b00ea2f8d11cb2e4f300e74 100644
+--- a/shell/common/options_switches.cc
++++ b/shell/common/options_switches.cc
+@@ -240,6 +240,8 @@ const char kAppPath[] = "app-path";
+ 
+ const char kEnableApiFilteringLogging[] = "enable-api-filtering-logging";
+ 
++const char kSerializationErrorCrashing[] = "ms-serialization-error-crashing";
++
+ // The command line switch versions of the options.
+ const char kBackgroundColor[] = "background-color";
+ const char kPreloadScript[] = "preload";
+diff --git a/shell/common/options_switches.h b/shell/common/options_switches.h
+index 8b896ae6ba3b79ee4c444b4e83a2ac4174af461c..b9b88c466801bcfd9b184a96f4a127b502ae6c96 100644
+--- a/shell/common/options_switches.h
++++ b/shell/common/options_switches.h
+@@ -121,6 +121,7 @@ extern const char kCORSSchemes[];
+ extern const char kAppUserModelId[];
+ extern const char kAppPath[];
+ extern const char kEnableApiFilteringLogging[];
++extern const char kSerializationErrorCrashing[];
+ 
+ extern const char kBackgroundColor[];
+ extern const char kPreloadScript[];
+diff --git a/shell/common/v8_value_serializer.cc b/shell/common/v8_value_serializer.cc
+index 73726976203c39f928ca1653da2e8b570bf5d787..52ea915475d34201ca4f93d776073e7c157e0b78 100644
+--- a/shell/common/v8_value_serializer.cc
++++ b/shell/common/v8_value_serializer.cc
+@@ -7,7 +7,9 @@
+ #include <utility>
+ #include <vector>
+ 
++#include "base/command_line.h"
+ #include "gin/converter.h"
++#include "shell/common/options_switches.h"
+ #include "third_party/blink/public/common/messaging/cloneable_message.h"
+ #include "v8/include/v8.h"
+ 
+@@ -32,6 +34,13 @@ class V8Serializer : public v8::ValueSerializer::Delegate {
+              .To(&wrote_value)) {
+       isolate_->ThrowException(v8::Exception::Error(
+           gin::StringToV8(isolate_, "An object could not be cloned.")));
++      static bool should_crash =
++          base::CommandLine::ForCurrentProcess()->HasSwitch(
++              switches::kSerializationErrorCrashing);
++      if (should_crash) {
++        volatile int* zero = nullptr;
++        *zero = 0;
++      }
+       return false;
+     }
+     DCHECK(wrote_value);

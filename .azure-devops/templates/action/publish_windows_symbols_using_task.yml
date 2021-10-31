@@ -1,0 +1,18 @@
+# This is copied from Teams build
+# https://domoreexp.visualstudio.com/Teamspace/_build?definitionId=744
+# https://domoreexp.visualstudio.com/Teamspace/_build?definitionId=3415
+
+parameters:
+  arch: ''  # {'arm64', 'x64', 'x86'}
+  symbolsArtifactName: ''
+  symbolsDirectory: ''
+
+
+steps:
+- task: PublishSymbols@2
+  displayName: Publish symbols of electron windows ${{ parameters.arch }} to domoreexp
+  inputs:
+    SymbolsFolder: ${{ parameters.symbolsDirectory }}
+    SearchPattern: '**\*.pdb'
+    SymbolServerType: TeamServices
+    SymbolsArtifactName: ${{ parameters.symbolsArtifactName }}

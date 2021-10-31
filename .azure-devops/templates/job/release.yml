@@ -1,0 +1,49 @@
+# Release Electron for all the flavours.
+
+parameters:
+  _flavours:
+  - electron
+  - media
+  - teams
+  - vscode
+  _platform: linux
+
+jobs:
+- job: build_electron_release
+  displayName: Release Electron
+  variables:
+  - group: Electron
+  pool:
+    vmImage: ubuntu-18.04
+  timeoutInMinutes: 10
+  steps:
+  - template: ../action/setup_agent.yml
+    parameters:
+      platform: ${{ parameters._platform }}
+
+  - template: ../action/checkout_self.yml
+
+  - ${{ each flavour in parameters._flavours }}:
+    - template: ../action/trigger_build.yml
+      parameters:
+        buildDefinitionName: Electron release with '${{ flavour }}' flavour
+
+  # Create a variable with a "flavour1=buildId1 flavour2=buildId2 [...]" value,
+  # e.g. "electron=3310263 media=3310264 teams=3310265 vscode=3310266".
+  - template: ../action/capture_output.yml
+    parameters:
+      command: >-
+        python scripts/make_pairs.py
+        --keys ${{ join(',', parameters._flavours) }}
+        --values $(TriggeredBuildIds)
+      variable: Electron.Local.FlavoursAndBuildIds
+
+  # TODO(alkuzmin): Publish produced binaries.
+
+  - template: ../action/generate_release_wiki.yml
+    parameters:
+      builds: $(Electron.Local.FlavoursAndBuildIds)
+      outputFilePath: $(Build.ArtifactStagingDirectory)/release_wiki_page.html
+
+  - publish: $(Build.ArtifactStagingDirectory)
+    artifact: wiki_page

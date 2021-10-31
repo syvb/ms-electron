@@ -1,0 +1,109 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Davit Magaltadze <damagal@microsoft.com>
+Date: Tue, 13 Oct 2020 18:18:25 +0200
+Subject: feat: Add crashReporter.didLastSessionCrash()
+
+Microsoft patch
+
+diff --git a/docs/api/crash-reporter.md b/docs/api/crash-reporter.md
+index ee8116642f298b2fd2d0c82ba3d552d8ee8d839d..c7e198f30128a3ba6c03cac377c106b1e71ffa2c 100644
+--- a/docs/api/crash-reporter.md
++++ b/docs/api/crash-reporter.md
+@@ -177,6 +177,10 @@ will not include this parameter.
+ 
+ Returns `Record<String, String>` - The current 'extra' parameters of the crash reporter.
+ 
++### `crashReporter.didLastSessionCrash()`
++
++Returns `Boolean` - Did last session crash or not.
++
+ ## Crash Report Payload
+ 
+ The crash reporter will send the following data to the `submitURL` as
+diff --git a/lib/browser/api/crash-reporter.ts b/lib/browser/api/crash-reporter.ts
+index 0cf765ae36339238fc096145d49633e5fb156f21..7073e8c98ecb7e1c824ed5bd61843de19d2700f5 100644
+--- a/lib/browser/api/crash-reporter.ts
++++ b/lib/browser/api/crash-reporter.ts
+@@ -82,6 +82,14 @@ class CrashReporter {
+   getParameters () {
+     return binding.getParameters();
+   }
++
++  didLastSessionCrash () {
++    if (binding.didLastSessionCrash) {
++      return binding.didLastSessionCrash();
++    } else {
++      return undefined;
++    }
++  }
+ }
+ 
+ export default new CrashReporter();
+diff --git a/shell/browser/api/electron_api_crash_reporter.cc b/shell/browser/api/electron_api_crash_reporter.cc
+index e22d9908747e78301327d09cf01dc0214803dc0a..a62e43fb12c606eda471dbe2bc4eeaf10d4986f6 100644
+--- a/shell/browser/api/electron_api_crash_reporter.cc
++++ b/shell/browser/api/electron_api_crash_reporter.cc
+@@ -6,6 +6,7 @@
+ 
+ #include <limits>
+ #include <map>
++#include <memory>
+ #include <string>
+ #include <utility>
+ #include <vector>
+@@ -49,6 +50,11 @@
+ #include "v8/include/v8.h"
+ #endif
+ 
++#include "microsoft/buildflags/buildflags.h"
++#if BUILDFLAG(MICROSOFT_ENABLE_CRASHREPORTER_API)
++#include "microsoft/src/electron/shell/browser/crash_checker.h"
++#endif
++
+ namespace {
+ 
+ #if defined(OS_LINUX)
+@@ -59,6 +65,9 @@ std::map<std::string, std::string>& GetGlobalCrashKeysMutable() {
+ }
+ #endif  // defined(OS_LINUX)
+ 
++#if BUILDFLAG(MICROSOFT_ENABLE_CRASHREPORTER_API)
++std::unique_ptr<microsoft::CrashChecker> g_crash_checker;
++#endif
+ bool g_crash_reporter_initialized = false;
+ 
+ }  // namespace
+@@ -169,6 +178,10 @@ void Start(const std::string& submit_url,
+     crashpad::CrashpadInfo::GetCrashpadInfo()
+         ->set_system_crash_reporter_forwarding(crashpad::TriState::kDisabled);
+   }
++#if BUILDFLAG(MICROSOFT_ENABLE_CRASHREPORTER_API)
++  g_crash_checker = std::make_unique<microsoft::CrashChecker>();
++#endif
++
+ #elif defined(OS_WIN)
+   for (const auto& pair : extra)
+     electron::crash_keys::SetCrashKey(pair.first, pair.second);
+@@ -253,6 +266,12 @@ v8::Local<v8::Value> GetParameters(v8::Isolate* isolate) {
+   return gin::ConvertToV8(isolate, keys);
+ }
+ 
++#if BUILDFLAG(MICROSOFT_ENABLE_CRASHREPORTER_API)
++bool DidLastSessionCrash() {
++  return g_crash_checker && g_crash_checker->DidLastSessionCrash();
++}
++#endif
++
+ void Initialize(v8::Local<v8::Object> exports,
+                 v8::Local<v8::Value> unused,
+                 v8::Local<v8::Context> context,
+@@ -270,6 +289,9 @@ void Initialize(v8::Local<v8::Object> exports,
+   dict.SetMethod("getUploadedReports", &GetUploadedReports);
+   dict.SetMethod("setUploadToServer", &SetUploadToServer);
+   dict.SetMethod("getUploadToServer", &GetUploadToServer);
++#if BUILDFLAG(MICROSOFT_ENABLE_CRASHREPORTER_API)
++  dict.SetMethod("didLastSessionCrash", &DidLastSessionCrash);
++#endif
+ }
+ 
+ }  // namespace

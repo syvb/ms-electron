@@ -1,0 +1,36 @@
+# Set a job variable on Linux, Mac, or Windows.
+# https://docs.microsoft.com/en-us/azure/devops/pipelines/process/variables?view=vsts&tabs=yaml%2Cbatch
+
+parameters:
+# Set to true to make the variable visible from other jobs.
+- name: isOutput
+  type: boolean
+  default: false
+# Mark the variable as a secret one.
+- name: isSecret
+  type: boolean
+  default: false
+# A file path to read a value from.
+- name: filePath
+  type: string
+# The variable name.
+- name: name
+  type: string
+# Use it to refer the variable from a different job.
+- name: stepName
+  type: string
+  default: set_variable
+
+steps:
+- task: PythonScript@0
+  name: ${{ parameters.stepName }}
+  displayName: Set ${{ parameters.name }} variable
+  inputs:
+    scriptSource: filePath
+    scriptPath: scripts/azure_pipelines_set_variable.py
+    arguments: >
+      --is-output ${{ parameters.isOutput }}
+      --is-secret ${{ parameters.isSecret }}
+      --name ${{ parameters.name }}
+      --value-from "${{ parameters.filePath }}"
+    failOnStderr: true

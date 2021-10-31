@@ -1,0 +1,9 @@
+{
+  "from": "https://github.com/electron/electron.git",
+  "to": "https://domoreexp.visualstudio.com/DefaultCollection/Teamspace/_git/electron-electron",
+  "force_push": true,
+  "branches": [
+    "10-x-y"
+  ],
+  "tags": true
+}

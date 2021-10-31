@@ -1,0 +1,95 @@
+import("//build/config/features.gni")
+import("//microsoft/buildflags/buildflags.gni")
+
+microsoft = {
+  # Absolute paths.
+  configs = []
+
+  defines = [ "MICROSOFT_BUILD_VERSION_STRING=\"$microsoft_build_version\"" ]
+
+  # Absolute paths.
+  deps = [ "//microsoft/buildflags" ]
+
+  # Relative to the current folder.
+  sources = [
+    "shell/common/api/process.cc",
+    "shell/common/api/process.h",
+    "shell/node_bindings_ms.cc",
+    "shell/node_bindings_ms.h",
+  ]
+
+  enabled_features = []
+}
+
+if (microsoft_enable_cpu_profiler) {
+  microsoft.sources += [
+    "shell/common/api/electron_common_cpu_profiler.cc",
+    "shell/common/api/electron_common_cpu_profiler.h",
+  ]
+}
+
+if (microsoft_enable_crashreporter_api) {
+  microsoft.sources += [
+    "shell/browser/crash_checker.cc",
+    "shell/browser/crash_checker.h",
+  ]
+}
+
+if (microsoft_enable_remote_host) {
+  microsoft.sources += [
+    "shell/browser/message_wrapper.cc",
+    "shell/browser/message_wrapper.h",
+    "shell/browser/send_to_sync_handler.cc",
+    "shell/browser/send_to_sync_handler.h",
+    "shell/renderer/direct_connection_manager.cc",
+    "shell/renderer/direct_connection_manager.h",
+    "shell/renderer/renderer_event.cc",
+    "shell/renderer/renderer_event.h",
+    "shell/renderer/renderer_service.cc",
+    "shell/renderer/renderer_service.h",
+  ]
+
+  microsoft.enabled_features += [ "microsoft_enable_remote_host" ]
+}
+
+if (microsoft_enable_memory_usage_api) {
+  microsoft.sources += [
+    "shell/common/memory_info.cc",
+    "shell/common/memory_info.h",
+  ]
+}
+
+if (microsoft_enable_startup_metrics) {
+  microsoft.sources += [
+    "shell/common/startup_metrics.cc",
+    "shell/common/startup_metrics.h",
+    "shell/common/startup_metrics_v8.cc",
+    "shell/common/startup_metrics_v8.h",
+  ]
+}
+
+if (microsoft_enable_tenant_restrictions) {
+  microsoft.deps += [ "//microsoft/src/components/edge_tenant" ]
+}
+
+if (microsoft_enable_watchdog) {
+  microsoft.sources += [
+    "shell/common/api/watchdog_mac.mm",
+    "shell/common/api/watchdog.cc",
+    "shell/common/api/watchdog.h",
+  ]
+
+  microsoft.enabled_features += [ "microsoft_enable_watchdog" ]
+}
+
+if (microsoft_enable_wer_api) {
+  microsoft.sources += [
+    "shell/common/wer_api_win.cc",
+    "shell/common/wer_api_win.h",
+  ]
+}
+
+# Make project-absolute paths for sources.
+_sources = microsoft.sources
+microsoft.sources = []
+microsoft.sources = get_path_info(_sources, "abspath")

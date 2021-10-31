@@ -1,0 +1,6 @@
+# https://domoreexp.visualstudio.com/Teamspace/_build?definitionId=2694
+
+trigger: none
+
+jobs:
+- template: templates/job/mirror_linux_sysroots.yml

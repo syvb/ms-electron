@@ -1,0 +1,27 @@
+# Get depot tools and add it to PATH.
+
+parameters:
+  platform: ''  # {'linux', 'mac', 'mas', 'windows'}
+  _directory: $(Build.BinariesDirectory)/depot_tools
+
+steps:
+- task: PythonScript@0
+  displayName: Get depot tools
+  inputs:
+    scriptSource: filePath
+    scriptPath: scripts/get_depot_tools.py
+    arguments: >
+      ${{ parameters._directory }}
+    failOnStderr: false  # It writes something to stderr even when everything is ok.
+
+- template: add_to_path.yml
+  parameters:
+    name: depot tools
+    directory: ${{ parameters._directory }}
+    platform: ${{ parameters.platform }}
+    prepend: true
+
+# pywin32 is required to generate a toolchain profile on Windows.
+- ${{ if eq(parameters.platform, 'windows') }}:
+  - script: python -m pip install pywin32
+    displayName: Install pywin32

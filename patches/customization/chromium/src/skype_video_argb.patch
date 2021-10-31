@@ -1,0 +1,86 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Milan Burda <miburda@microsoft.com>
+Date: Sat, 7 Nov 2020 01:58:34 +0100
+Subject: feat: add support for PIXEL_FORMAT_ARGB in software frame pipeline
+
+Microsoft patch
+
+diff --git a/media/renderers/video_resource_updater.cc b/media/renderers/video_resource_updater.cc
+index c7bd6c99f95af1d4b87947f53427572dde4479bb..e22b5e030b9b6a07ac3da042587789e10a0d0b6c 100644
+--- a/media/renderers/video_resource_updater.cc
++++ b/media/renderers/video_resource_updater.cc
+@@ -913,7 +913,8 @@ VideoFrameExternalResources VideoResourceUpdater::CreateForSoftwarePlanes(
+ 
+   // Only YUV and Y16 software video frames are supported.
+   DCHECK(IsYuvPlanar(input_frame_format) ||
+-         input_frame_format == PIXEL_FORMAT_Y16);
++         input_frame_format == PIXEL_FORMAT_Y16 ||
++         input_frame_format == PIXEL_FORMAT_ARGB);
+ 
+   viz::ResourceFormat output_resource_format;
+   gfx::ColorSpace output_color_space = video_frame->ColorSpace();
+@@ -922,6 +923,8 @@ VideoFrameExternalResources VideoResourceUpdater::CreateForSoftwarePlanes(
+     // compositing.
+     output_resource_format = viz::RGBA_8888;
+     output_color_space = output_color_space.GetAsFullRangeRGB();
++  } else if (input_frame_format == PIXEL_FORMAT_ARGB) {
++    output_resource_format = viz::BGRA_8888;
+   } else if (!software_compositor()) {
+     // Can be composited directly from yuv planes.
+     output_resource_format = YuvResourceFormat(bits_per_channel);
+@@ -1023,22 +1026,28 @@ VideoFrameExternalResources VideoResourceUpdater::CreateForSoftwarePlanes(
+         SkImageInfo info = SkImageInfo::MakeN32Premul(
+             gfx::SizeToSkISize(software_resource->resource_size()));
+ 
+-        SkBitmap sk_bitmap;
+-        sk_bitmap.installPixels(info, software_resource->pixels(),
+-                                info.minRowBytes());
+-        // This is software path, so |canvas| and |video_frame| are always
+-        // backed by software.
+-        cc::SkiaPaintCanvas canvas(sk_bitmap);
+-        cc::PaintFlags flags;
+-        flags.setBlendMode(SkBlendMode::kSrc);
+-        flags.setFilterQuality(kLow_SkFilterQuality);
+-
+-        // Note that PaintCanvasVideoRenderer::Copy would copy to the origin,
+-        // not |video_frame->visible_rect|, so call Paint instead.
+-        // https://crbug.com/1090435
+-        video_renderer_->Paint(video_frame, &canvas,
+-                               gfx::RectF(video_frame->visible_rect()), flags,
+-                               media::kNoTransformation, nullptr);
++        if (input_frame_format == PIXEL_FORMAT_ARGB) {
++          libyuv::ARGBCopy(video_frame->data(0), video_frame->stride(0),
++                           static_cast<uint8_t*>(software_resource->pixels()),
++                           info.minRowBytes(), info.width(), info.height());
++        } else {
++          SkBitmap sk_bitmap;
++          sk_bitmap.installPixels(info, software_resource->pixels(),
++                                  info.minRowBytes());
++          // This is software path, so |canvas| and |video_frame| are always
++          // backed by software.
++          cc::SkiaPaintCanvas canvas(sk_bitmap);
++          cc::PaintFlags flags;
++          flags.setBlendMode(SkBlendMode::kSrc);
++          flags.setFilterQuality(kLow_SkFilterQuality);
++
++          // Note that PaintCanvasVideoRenderer::Copy would copy to the origin,
++          // not |video_frame->visible_rect|, so call Paint instead.
++          // https://crbug.com/1090435
++          video_renderer_->Paint(video_frame, &canvas,
++                                 gfx::RectF(video_frame->visible_rect()), flags,
++                                 media::kNoTransformation, nullptr);
++        }
+       } else {
+         HardwarePlaneResource* hardware_resource = plane_resource->AsHardware();
+         size_t bytes_per_row = viz::ResourceSizes::CheckedWidthInBytes<size_t>(
+@@ -1256,7 +1265,9 @@ VideoFrameExternalResources VideoResourceUpdater::CreateForSoftwarePlanes(
+         plane_resource->plane_resource_id()));
+   }
+ 
+-  external_resources.type = VideoFrameResourceType::YUV;
++  external_resources.type = (output_resource_format == viz::BGRA_8888)
++                                ? VideoFrameResourceType::RGBA_PREMULTIPLIED
++                                : VideoFrameResourceType::YUV;
+   return external_resources;
+ }
+ 

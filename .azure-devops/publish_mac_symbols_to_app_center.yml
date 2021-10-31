@@ -1,0 +1,16 @@
+# https://domoreexp.visualstudio.com/Teamspace/_build?definitionId=3365
+#
+# Publish macOS symbol files (dSYM) of BuildID to Mac Teams desktop app on App Center.
+# App Center link: https://appcenter.ms/users/cchiv-7ym0/apps/Teams-Mac/
+
+trigger: none
+
+parameters:
+- name: buildId
+  displayName: Electron build ID
+  type: number
+
+jobs:
+- template: templates/job/publish_mac_symbols_to_app_center.yml
+  parameters:
+    buildId: ${{ parameters.buildId }}

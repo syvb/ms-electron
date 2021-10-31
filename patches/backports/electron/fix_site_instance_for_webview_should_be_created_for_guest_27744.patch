@@ -1,0 +1,38 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Pedro Pontes <pepontes@microsoft.com>
+Date: Tue, 16 Feb 2021 21:34:59 +0100
+Subject: fix: site instance for webview should be created "for guest" (#27744)
+
+Backport: https://github.com/electron/electron/pull/27744
+
+diff --git a/shell/browser/api/electron_api_web_contents.cc b/shell/browser/api/electron_api_web_contents.cc
+index a39954667cf144b1cac94b095659d85e345891cb..01aa8232dec6a06453a5c1677ca8a68ad010eb41 100644
+--- a/shell/browser/api/electron_api_web_contents.cc
++++ b/shell/browser/api/electron_api_web_contents.cc
+@@ -549,8 +549,8 @@ WebContents::WebContents(v8::Isolate* isolate,
+   std::unique_ptr<content::WebContents> web_contents;
+   if (IsGuest()) {
+     scoped_refptr<content::SiteInstance> site_instance =
+-        content::SiteInstance::CreateForURL(session->browser_context(),
+-                                            GURL("chrome-guest://fake-host"));
++        content::SiteInstance::CreateForGuest(session->browser_context(),
++                                              GURL("chrome-guest://fake-host"));
+     content::WebContents::CreateParams params(session->browser_context(),
+                                               site_instance);
+     guest_delegate_ =
+diff --git a/spec-main/webview-spec.ts b/spec-main/webview-spec.ts
+index 8bf015c03e1d54028fb7a0c9630fde1f04a49b3b..9b997530f6a9e9f780a39a147fbd6cdd57b1ac32 100644
+--- a/spec-main/webview-spec.ts
++++ b/spec-main/webview-spec.ts
+@@ -390,7 +390,10 @@ describe('<webview> tag', function () {
+       expect(windowOpenReturnedNull).to.be.true();
+     });
+ 
+-    it('blocks accessing cross-origin frames', async () => {
++    // Chromium doesn't have this expectation and the fix to
++    // https://github.com/electron/electron/issues/27503
++    // aligns Electron with Chromium regarding webviews.
++    xit('blocks accessing cross-origin frames', async () => {
+       // Don't wait for loading to finish.
+       loadWebView(w.webContents, {
+         allowpopups: 'on',

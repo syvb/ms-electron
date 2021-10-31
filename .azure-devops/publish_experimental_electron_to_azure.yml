@@ -1,0 +1,16 @@
+# https://domoreexp.visualstudio.com/Teamspace/_build?definitionId=3132
+#
+# Publish already built Electron to the experimental Azure storage.
+
+trigger: none
+
+parameters:
+- name: buildId
+  displayName: Electron build ID
+  type: number
+
+jobs:
+- template: templates/job/publish_electron_to_azure.yml
+  parameters:
+    buildId: ${{ parameters.buildId }}
+    container: experimental-builds

@@ -1,0 +1,98 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Ales Pergl <alpergl@microsoft.com>
+Date: Wed, 10 Oct 2018 18:55:46 +0000
+Subject: feat: add --ms-disable-indexeddb-transaction-timeout command-line
+ switch
+
+Disabling the timeout can be helpful to prevent spurious failures when accessing the DB store.
+
+diff --git a/content/browser/indexed_db/indexed_db_transaction.cc b/content/browser/indexed_db/indexed_db_transaction.cc
+index 989bdf484709965e0aad999b71e378115285791a..339a941b8e86e270435543e76d02b1605c6f5902 100644
+--- a/content/browser/indexed_db/indexed_db_transaction.cc
++++ b/content/browser/indexed_db/indexed_db_transaction.cc
+@@ -9,6 +9,7 @@
+ 
+ #include "base/bind.h"
+ #include "base/check_op.h"
++#include "base/command_line.h"
+ #include "base/location.h"
+ #include "base/metrics/histogram_functions.h"
+ #include "base/metrics/histogram_macros.h"
+@@ -21,6 +22,7 @@
+ #include "content/browser/indexed_db/indexed_db_database.h"
+ #include "content/browser/indexed_db/indexed_db_database_callbacks.h"
+ #include "content/browser/indexed_db/indexed_db_tracing.h"
++#include "content/public/common/content_switches.h"
+ #include "third_party/blink/public/mojom/indexeddb/indexeddb.mojom.h"
+ #include "third_party/leveldatabase/env_chromium.h"
+ 
+@@ -121,6 +123,9 @@ IndexedDBTransaction::IndexedDBTransaction(
+   diagnostics_.tasks_scheduled = 0;
+   diagnostics_.tasks_completed = 0;
+   diagnostics_.creation_time = base::Time::Now();
++
++  disable_timeout_ = base::CommandLine::ForCurrentProcess()->HasSwitch(
++      switches::kDisableIndexedDBTransactionTimeout);
+ }
+ 
+ IndexedDBTransaction::~IndexedDBTransaction() {
+@@ -517,7 +522,7 @@ IndexedDBTransaction::RunTasks() {
+   // block other transactions, so don't time those out.
+   if (!HasPendingTasks() &&
+       mode_ != blink::mojom::IDBTransactionMode::ReadOnly &&
+-      state_ == STARTED) {
++      state_ == STARTED && !disable_timeout_) {
+     timeout_timer_.Start(FROM_HERE, GetInactivityTimeout(),
+                          base::BindOnce(&IndexedDBTransaction::Timeout,
+                                         ptr_factory_.GetWeakPtr()));
+diff --git a/content/browser/indexed_db/indexed_db_transaction.h b/content/browser/indexed_db/indexed_db_transaction.h
+index 84c47f1dd89a72c4193241bde20fa2ebe216d337..c5dd3353ddd0cd9cba91d2157d177fd382207ac0 100644
+--- a/content/browser/indexed_db/indexed_db_transaction.h
++++ b/content/browser/indexed_db/indexed_db_transaction.h
+@@ -299,6 +299,7 @@ class CONTENT_EXPORT IndexedDBTransaction {
+   // requests are processed before the timer fires, assume the script is
+   // unresponsive and abort to unblock the transaction queue.
+   base::OneShotTimer timeout_timer_;
++  bool disable_timeout_ = false;
+ 
+   Diagnostics diagnostics_;
+ 
+diff --git a/content/browser/renderer_host/render_process_host_impl.cc b/content/browser/renderer_host/render_process_host_impl.cc
+index 1fb7ffd7eb51c136ec5f0e01f509c75c7c48536f..418cf81b56402ca89996758d673e1a4e259dd563 100644
+--- a/content/browser/renderer_host/render_process_host_impl.cc
++++ b/content/browser/renderer_host/render_process_host_impl.cc
+@@ -3332,6 +3332,7 @@ void RenderProcessHostImpl::PropagateBrowserCommandLineToRenderer(
+     switches::kDisableFrameRateLimit,
+     switches::kDisableGpuMemoryBufferVideoFrames,
+     switches::kDisableHistogramCustomizer,
++    switches::kDisableIndexedDBTransactionTimeout,
+     switches::kDisableLCDText,
+     switches::kDisableLogging,
+     switches::kDisableBackgroundMediaSuspend,
+diff --git a/content/public/common/content_switches.cc b/content/public/common/content_switches.cc
+index f24ff2313d2d9714aed874236528ef08b73e2c53..ed86f11ebeda2d27d8f4c3a0f4d159311de7c769 100644
+--- a/content/public/common/content_switches.cc
++++ b/content/public/common/content_switches.cc
+@@ -183,6 +183,10 @@ const char kDisableHangMonitor[]            = "disable-hang-monitor";
+ // Disable the RenderThread's HistogramCustomizer.
+ const char kDisableHistogramCustomizer[]    = "disable-histogram-customizer";
+ 
++// [Microsoft extension] Disables IndexedDB transaction timeout.
++const char kDisableIndexedDBTransactionTimeout[] =
++    "ms-disable-indexeddb-transaction-timeout";
++
+ // Don't kill a child process when it sends a bad IPC message.  Apart
+ // from testing, it is a bad idea from a security perspective to enable
+ // this switch.
+diff --git a/content/public/common/content_switches.h b/content/public/common/content_switches.h
+index be727273b85b327306f97a21527438b403ffa86c..9263127f94e69eae4ac691d71bf6f7da73e67324 100644
+--- a/content/public/common/content_switches.h
++++ b/content/public/common/content_switches.h
+@@ -63,6 +63,7 @@ CONTENT_EXPORT extern const char kDisableJavaScriptHarmonyShipping[];
+ CONTENT_EXPORT extern const char kDisableLowLatencyDxva[];
+ CONTENT_EXPORT extern const char kDisableHangMonitor[];
+ extern const char kDisableHistogramCustomizer[];
++extern const char kDisableIndexedDBTransactionTimeout[];
+ CONTENT_EXPORT extern const char kDisableLCDText[];
+ CONTENT_EXPORT extern const char kDisablePreferCompositingToLCDText[];
+ CONTENT_EXPORT extern const char kDisableKillAfterBadIPC[];

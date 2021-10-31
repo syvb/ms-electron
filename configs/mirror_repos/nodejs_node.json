@@ -1,0 +1,10 @@
+{
+  "from": "https://github.com/nodejs/node.git",
+  "to": "https://domoreexp.visualstudio.com/DefaultCollection/Teamspace/_git/electron-node",
+  "force_push": true,
+  "bypass_cred_scan": true,
+  "branches": [
+    "v12.x"
+  ],
+  "tags": true
+}

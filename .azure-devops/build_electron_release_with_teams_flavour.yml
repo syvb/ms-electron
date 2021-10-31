@@ -1,0 +1,10 @@
+# https://domoreexp.visualstudio.com/Teamspace/_build?definitionId=2877
+#
+# Build an Electron Release with the "teams" flavour.
+
+trigger: none
+
+jobs:
+- template: templates/build/build_electron_release.yml
+  parameters:
+    flavour: teams

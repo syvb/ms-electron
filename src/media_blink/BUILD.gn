@@ -1,0 +1,21 @@
+source_set("media_blink") {
+  sources = [
+    "frame_sink_client.cc",
+    "frame_sink_client.h",
+    "image_info.cc",
+    "image_info.h",
+    "skypevideo_webmediaplayer.cc",
+    "skypevideo_webmediaplayer.h",
+    "triple_buffer.cc",
+    "triple_buffer.h",
+  ]
+
+  defines = [ "MEDIA_BLINK_IMPLEMENTATION" ]
+
+  deps = [
+    "//content/common:mojo_bindings",
+    "//microsoft/src/skype_video:shared_memory",
+    "//skia",
+    "//third_party/blink/public:blink",
+  ]
+}

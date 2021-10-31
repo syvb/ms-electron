@@ -1,0 +1,5 @@
+{
+  "src/microsoft/patches/customization/chromium/angle": "src/third_party/angle",
+  "src/microsoft/patches/customization/chromium/src": "src",
+  "src/microsoft/patches/customization/chromium/v8": "src/v8"
+}

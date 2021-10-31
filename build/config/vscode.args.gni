@@ -1,0 +1,19 @@
+# Chromium flags
+ffmpeg_branding = "Slim"
+
+# Electron flags
+enable_basic_printing = false
+enable_builtin_spellchecker = false
+enable_desktop_capturer = false
+enable_osr = false
+enable_pdf = false
+enable_pdf_viewer = false
+enable_pepper_flash = false
+enable_plugins = false
+enable_print_preview = false
+enable_widevine = false
+
+# Microsoft flags
+microsoft_add_build_version_to_process_versions = true
+microsoft_enable_app_center = true
+microsoft_enable_iso_keyboard_key_mapping = false

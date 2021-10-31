@@ -1,0 +1,18 @@
+# The CopyFiles task can't rename files.
+# https://docs.microsoft.com/en-us/azure/devops/pipelines/tasks/utility/copy-files?view=azure-devops&tabs=yaml
+
+parameters:
+  displayName: Copy a file
+  from: ''  # An absolute path.
+  to: ''  # An absolute path.
+
+steps:
+- task: PythonScript@0
+  displayName: ${{ parameters.displayName }}
+  inputs:
+    scriptSource: filePath
+    scriptPath: scripts/copy_file.py
+    arguments: >
+      --from ${{ parameters.from }}
+      --to ${{ parameters.to }}
+    failOnStderr: true

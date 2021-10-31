@@ -1,0 +1,554 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Milan Burda <miburda@microsoft.com>
+Date: Wed, 10 Oct 2018 18:55:46 +0000
+Subject: feat: implement software buffer sharing with the GPU process
+
+Microsoft patch
+
+diff --git a/content/browser/gpu/gpu_process_host.cc b/content/browser/gpu/gpu_process_host.cc
+index 367ae17f45c1195104750a056a1fa7ea666be226..38c38be16d2cd841d851ed6fe21acc99ff965936 100644
+--- a/content/browser/gpu/gpu_process_host.cc
++++ b/content/browser/gpu/gpu_process_host.cc
+@@ -81,6 +81,7 @@
+ #include "ui/latency/latency_info.h"
+ 
+ #if defined(OS_WIN)
++#include "microsoft/src/content/sandbox_win.h"
+ #include "sandbox/win/src/sandbox_policy.h"
+ #include "sandbox/win/src/window.h"
+ #include "services/service_manager/sandbox/win/sandbox_win.h"
+@@ -408,6 +409,9 @@ class GpuSandboxedProcessLauncherDelegate
+     else
+       policy->SetIntegrityLevel(sandbox::INTEGRITY_LEVEL_LOW);
+ 
++    if (!microsoft::AllowVideoRendererInSandbox(policy))
++      return false;
++
+     // Block this DLL even if it is not loaded by the browser process.
+     policy->AddDllToUnload(L"cmsetac.dll");
+ 
+diff --git a/gpu/command_buffer/build_gles2_cmd_buffer.py b/gpu/command_buffer/build_gles2_cmd_buffer.py
+index 75380476f35adbfdb97cca32bab64087b94368bc..d367e59039ea6c37c7f789c091ec58e34d24e7f7 100755
+--- a/gpu/command_buffer/build_gles2_cmd_buffer.py
++++ b/gpu/command_buffer/build_gles2_cmd_buffer.py
+@@ -4263,8 +4263,23 @@ _FUNCTION_INFO = {
+     'decoder_func': 'DoEndBatchReadAccessSharedImageCHROMIUM',
+     'extension': 'CHROMIUM_shared_image',
+     'unit_test': False,
++  },
++  'UpdateTextureSKYPE': {
++    'type': 'GLchar',
++    'data_transfer_methods': ['bucket'],
++    'needs_size': True,
++    'unit_test': False,
++    'client_test': False,
++    'extension': 'SKYPE_buffer_sharing',
++  },
++  'ReleaseBufferSKYPE': {
++    'type': 'GLchar',
++    'data_transfer_methods': ['bucket'],
++    'needs_size': True,
++    'unit_test': False,
++    'client_test': False,
++    'extension': 'SKYPE_buffer_sharing',
+   }
+-
+ }
+ 
+ 
+diff --git a/gpu/command_buffer/client/gles2_implementation.cc b/gpu/command_buffer/client/gles2_implementation.cc
+index 4e5f869203d6b99b3368d3264830799d2d62006b..575256b2933ff8c3a4564658a2daa6338df64c84 100644
+--- a/gpu/command_buffer/client/gles2_implementation.cc
++++ b/gpu/command_buffer/client/gles2_implementation.cc
+@@ -7585,6 +7585,38 @@ void GLES2Implementation::SetActiveURLCHROMIUM(const char* url) {
+   helper_->SetBucketSize(kResultBucketId, 0);
+ }
+ 
++void GLES2Implementation::UpdateTextureSKYPE(GLenum target,
++                                             GLsizei width,
++                                             GLsizei height,
++                                             GLenum format,
++                                             GLenum type,
++                                             const char* buffer_name,
++                                             GLuint buffer_offset) {
++  GPU_CLIENT_SINGLE_THREAD_CHECK();
++  GPU_CLIENT_LOG("[" << GetLogPrefix() << "] glUpdateTextureSKYPE("
++                     << GLES2Util::GetStringTextureTarget(target) << ", "
++                     << width << ", " << height << ", "
++                     << GLES2Util::GetStringTextureFormat(format) << ", "
++                     << GLES2Util::GetStringPixelType(type) << ", "
++                     << buffer_name << ", " << buffer_offset << ")");
++
++  SetBucketAsCString(kResultBucketId, buffer_name);
++  helper_->UpdateTextureSKYPEBucket(target, width, height, format, type,
++                                    kResultBucketId, buffer_offset);
++  helper_->SetBucketSize(kResultBucketId, 0);
++  CheckGLError();
++}
++
++void GLES2Implementation::ReleaseBufferSKYPE(const char* name) {
++  GPU_CLIENT_SINGLE_THREAD_CHECK();
++  GPU_CLIENT_LOG("[" << GetLogPrefix() << "] glReleaseBufferSKYPE(" << name
++                     << ")");
++  SetBucketAsCString(kResultBucketId, name);
++  helper_->ReleaseBufferSKYPEBucket(kResultBucketId);
++  helper_->SetBucketSize(kResultBucketId, 0);
++  CheckGLError();
++}
++
+ // Include the auto-generated part of this file. We split this because it means
+ // we can easily edit the non-auto generated parts right here in this file
+ // instead of having to edit some template or the code generator.
+diff --git a/gpu/command_buffer/gles2_cmd_buffer_functions.txt b/gpu/command_buffer/gles2_cmd_buffer_functions.txt
+index bdc472c3878a3d228243b7d95b830b9891e18caa..186aa3fa66e27b1e8357c61c5c60fe3125731d11 100644
+--- a/gpu/command_buffer/gles2_cmd_buffer_functions.txt
++++ b/gpu/command_buffer/gles2_cmd_buffer_functions.txt
+@@ -426,3 +426,7 @@ GL_APICALL void         GL_APIENTRY glBlendFunciOES (GLuint buf, GLenum src, GLe
+ GL_APICALL void         GL_APIENTRY glBlendFuncSeparateiOES (GLuint buf, GLenum srcRGB, GLenum dstRGB, GLenum srcAlpha, GLenum dstAlpha);
+ GL_APICALL void         GL_APIENTRY glColorMaskiOES (GLuint buf, GLboolean r, GLboolean g, GLboolean b, GLboolean a);
+ GL_APICALL GLboolean    GL_APIENTRY glIsEnablediOES (GLenum target, GLuint index);
++
++// Extension SKYPE_buffer_sharing
++GL_APICALL void         GL_APIENTRY glUpdateTextureSKYPE (GLenumTextureTarget target, GLsizei width, GLsizei height, GLenumTextureFormat format, GLenumPixelType type, const char* buffer_name, GLuint buffer_offset);
++GL_APICALL void         GL_APIENTRY glReleaseBufferSKYPE (const char* name);
+diff --git a/gpu/command_buffer/service/BUILD.gn b/gpu/command_buffer/service/BUILD.gn
+index 16cb60657261def8b67b7bad4bdc90b1948b8326..9b64ba3f039d9bcb352781688277f23920f800b2 100644
+--- a/gpu/command_buffer/service/BUILD.gn
++++ b/gpu/command_buffer/service/BUILD.gn
+@@ -321,6 +321,8 @@ target(link_target_type, "gles2_sources") {
+     "//ui/gl/init",
+   ]
+ 
++  deps += [ "//microsoft/src/gpu/command_buffer/service" ]
++
+   if (use_ozone) {
+     deps += [ "//ui/ozone" ]
+   }
+diff --git a/gpu/command_buffer/service/gles2_cmd_decoder.cc b/gpu/command_buffer/service/gles2_cmd_decoder.cc
+index 250c811b72789d4ac32511dddd94c27f107de23f..862ab5821af9e38060142eadaf8d23140ae664ee 100644
+--- a/gpu/command_buffer/service/gles2_cmd_decoder.cc
++++ b/gpu/command_buffer/service/gles2_cmd_decoder.cc
+@@ -113,6 +113,10 @@
+ #include "ui/gl/init/create_gr_gl_interface.h"
+ #include "ui/gl/scoped_make_current.h"
+ 
++#include "microsoft/src/gpu/command_buffer/service/buffer_manager_service.h"
++#include "microsoft/src/gpu/command_buffer/service/utils.h"
++#include "microsoft/src/skype_video/shared_memory.h"
++
+ #if defined(OS_MACOSX)
+ #include <IOSurface/IOSurface.h>
+ // Note that this must be included after gl_bindings.h to avoid conflicts.
+@@ -2832,6 +2836,8 @@ class GLES2DecoderImpl : public GLES2Decoder,
+   // future when our context is current.
+   std::set<scoped_refptr<TextureRef>> texture_refs_pending_destruction_;
+ 
++  std::unique_ptr<microsoft::BufferManagerService> buffer_manager_service_;
++
+   base::WeakPtrFactory<GLES2DecoderImpl> weak_ptr_factory_{this};
+ 
+   DISALLOW_COPY_AND_ASSIGN(GLES2DecoderImpl);
+@@ -18500,6 +18506,101 @@ void GLES2DecoderImpl::DoCopySubTextureCHROMIUM(
+                        unpack_unmultiply_alpha, GL_FALSE /* dither */);
+ }
+ 
++error::Error GLES2DecoderImpl::HandleUpdateTextureSKYPEBucket(
++    uint32_t immediate_data_size,
++    const volatile void* cmd_data) {
++  const char* func_name = "glHandleUpdateTextureSKYPE";
++  const volatile auto& c =
++      *static_cast<const volatile gles2::cmds::UpdateTextureSKYPEBucket*>(
++          cmd_data);
++
++  Bucket* bucket = GetBucket(c.buffer_name_bucket_id);
++  if (!bucket || bucket->size() == 0) {
++    return error::kInvalidArguments;
++  }
++
++  std::string buffer_name;
++  if (!bucket->GetAsString(&buffer_name)) {
++    return error::kInvalidArguments;
++  }
++
++  TRACE_EVENT2("gpu", "GLES2DecoderImpl::HandleUpdateTextureSKYPEBucket",
++               "width", c.width, "height", c.height);
++
++  if (c.width < 0 || c.height < 0) {
++    return error::kInvalidArguments;
++  }
++
++  if (!buffer_manager_service_) {
++    buffer_manager_service_ =
++        std::make_unique<microsoft::BufferManagerService>();
++  }
++
++  auto buffer = buffer_manager_service_->GetBuffer(buffer_name);
++  if (!buffer) {
++    return error::kInvalidArguments;
++  }
++
++  auto alignment = microsoft::GetAlignmentWithoutPadding(c.width, c.height,
++                                                         c.format, c.type);
++  if (alignment == 0) {
++    return error::kInvalidArguments;
++  }
++
++  TextureManager::DoTexSubImageArguments args = {};
++  args.target = c.target;
++  args.width = c.width;
++  args.height = c.height;
++  args.depth = 1;
++  args.format = c.format;
++  args.type = c.type;
++  args.pixels = static_cast<uint8_t*>(buffer->memory()) + c.buffer_offset;
++  args.pixels_size = static_cast<uint32_t>(buffer->mapped_size());
++  args.padding = 0;
++  args.command_type =
++      TextureManager::DoTexSubImageArguments::CommandType::kTexSubImage2D;
++
++  glPixelStorei(GL_UNPACK_ALIGNMENT, alignment);
++
++  texture_manager()->ValidateAndDoTexSubImage(
++      this, &texture_state_, &state_, error_state_.get(), &framebuffer_state_,
++      func_name, args);
++
++  glPixelStorei(GL_UNPACK_ALIGNMENT, state_.unpack_alignment);
++
++  // This may be a slow command.  Exit command processing to allow for
++  // context preemption and GPU watchdog checks.
++  ExitCommandProcessingEarly();
++
++  return error::kNoError;
++}
++
++error::Error GLES2DecoderImpl::HandleReleaseBufferSKYPEBucket(
++    uint32_t immediate_data_size,
++    const volatile void* cmd_data) {
++  const volatile auto& c =
++      *static_cast<const volatile gles2::cmds::ReleaseBufferSKYPEBucket*>(
++          cmd_data);
++
++  Bucket* bucket = GetBucket(c.name_bucket_id);
++  if (!bucket || bucket->size() == 0) {
++    return error::kInvalidArguments;
++  }
++
++  std::string name;
++  if (!bucket->GetAsString(&name)) {
++    return error::kInvalidArguments;
++  }
++
++  TRACE_EVENT0("gpu", "GLES2DecoderImpl::HandleReleaseBufferSKYPEBucket");
++
++  if (buffer_manager_service_) {
++    buffer_manager_service_->ReleaseBuffer(name);
++  }
++
++  return error::kNoError;
++}
++
+ bool GLES2DecoderImpl::InitializeCopyTexImageBlitter(
+     const char* function_name) {
+   if (!copy_tex_image_blit_.get()) {
+diff --git a/gpu/command_buffer/service/gles2_cmd_decoder_passthrough.cc b/gpu/command_buffer/service/gles2_cmd_decoder_passthrough.cc
+index 3fa8cacc08649b16d223a66ded97e574e8be3d5e..30a9fded996d11a5392cf26ffc2a67f1d043dcc9 100644
+--- a/gpu/command_buffer/service/gles2_cmd_decoder_passthrough.cc
++++ b/gpu/command_buffer/service/gles2_cmd_decoder_passthrough.cc
+@@ -31,6 +31,8 @@
+ #include "gpu/command_buffer/service/shared_image_backing_factory_d3d.h"
+ #endif  // OS_WIN
+ 
++#include "microsoft/src/gpu/command_buffer/service/buffer_manager_service.h"
++
+ namespace gpu {
+ namespace gles2 {
+ 
+diff --git a/gpu/command_buffer/service/gles2_cmd_decoder_passthrough.h b/gpu/command_buffer/service/gles2_cmd_decoder_passthrough.h
+index 7ff062e8b00029d9f0ae0b95f456a286851ca0b0..de48afd39adbfab475a0f661b98fbe964af0ae4f 100644
+--- a/gpu/command_buffer/service/gles2_cmd_decoder_passthrough.h
++++ b/gpu/command_buffer/service/gles2_cmd_decoder_passthrough.h
+@@ -42,6 +42,10 @@ class GLFence;
+ class ProgressReporter;
+ }
+ 
++namespace microsoft {
++class BufferManagerService;
++}
++
+ namespace gpu {
+ class SharedImageRepresentationGLTexturePassthrough;
+ 
+@@ -867,6 +871,8 @@ class GPU_GLES2_EXPORT GLES2DecoderPassthroughImpl
+   // CA Layer state
+   std::unique_ptr<CALayerSharedState> ca_layer_shared_state_;
+ 
++  std::unique_ptr<microsoft::BufferManagerService> buffer_manager_service_;
++
+   base::WeakPtrFactory<GLES2DecoderPassthroughImpl> weak_ptr_factory_{this};
+ 
+   class ScopedEnableTextureRectangleInShaderCompiler;
+diff --git a/gpu/command_buffer/service/gles2_cmd_decoder_passthrough_doer_prototypes.h b/gpu/command_buffer/service/gles2_cmd_decoder_passthrough_doer_prototypes.h
+index 069eb85a96bad8bbbe484398b956b56b8207d8aa..ad705eed8aaf6473e5b1ad3f7ee2c549feecec92 100644
+--- a/gpu/command_buffer/service/gles2_cmd_decoder_passthrough_doer_prototypes.h
++++ b/gpu/command_buffer/service/gles2_cmd_decoder_passthrough_doer_prototypes.h
+@@ -1166,4 +1166,15 @@ error::Error DoColorMaskiOES(GLuint buf,
+                              GLboolean blue,
+                              GLboolean alpha);
+ error::Error DoIsEnablediOES(GLenum target, GLuint index, uint32_t* result);
++
++error::Error DoUpdateTextureSKYPE(GLenum target,
++                                  GLsizei width,
++                                  GLsizei height,
++                                  GLenum format,
++                                  GLenum type,
++                                  const std::string& buffer_name,
++                                  GLuint buffer_offset);
++
++error::Error DoReleaseBufferSKYPE(const std::string& name);
++
+ #endif  // GPU_COMMAND_BUFFER_SERVICE_GLES2_CMD_DECODER_PASSTHROUGH_DOER_PROTOTYPES_H_
+diff --git a/gpu/command_buffer/service/gles2_cmd_decoder_passthrough_doers.cc b/gpu/command_buffer/service/gles2_cmd_decoder_passthrough_doers.cc
+index 19086f610a0170a11652ad4d841dd6df21621f14..f63a21fb33dfb3b481ba9c0b480ab581d27abdac 100644
+--- a/gpu/command_buffer/service/gles2_cmd_decoder_passthrough_doers.cc
++++ b/gpu/command_buffer/service/gles2_cmd_decoder_passthrough_doers.cc
+@@ -24,6 +24,10 @@
+ #include "ui/gl/dc_renderer_layer_params.h"
+ #include "ui/gl/gl_version_info.h"
+ 
++#include "microsoft/src/gpu/command_buffer/service/buffer_manager_service.h"
++#include "microsoft/src/gpu/command_buffer/service/utils.h"
++#include "microsoft/src/skype_video/shared_memory.h"
++
+ namespace gpu {
+ namespace gles2 {
+ 
+@@ -5511,5 +5515,55 @@ error::Error GLES2DecoderPassthroughImpl::DoDisableiOES(GLenum target,
+   return error::kNoError;
+ }
+ 
++error::Error GLES2DecoderPassthroughImpl::DoUpdateTextureSKYPE(
++    GLenum target,
++    GLsizei width,
++    GLsizei height,
++    GLenum format,
++    GLenum type,
++    const std::string& buffer_name,
++    GLuint buffer_offset) {
++  if (!buffer_manager_service_) {
++    buffer_manager_service_ =
++        std::make_unique<microsoft::BufferManagerService>();
++  }
++
++  auto buffer = buffer_manager_service_->GetBuffer(buffer_name);
++  if (!buffer) {
++    return error::kInvalidArguments;
++  }
++
++  auto* pixels = static_cast<uint8_t*>(buffer->memory()) + buffer_offset;
++  auto buffer_size = static_cast<uint32_t>(buffer->mapped_size());
++
++  auto alignment =
++      microsoft::GetAlignmentWithoutPadding(width, height, format, type);
++  if (alignment == 0) {
++    return error::kInvalidArguments;
++  }
++
++  GLint prev_alignment = 0;
++  glGetIntegerv(GL_UNPACK_ALIGNMENT, &prev_alignment);
++  glPixelStorei(GL_UNPACK_ALIGNMENT, alignment);
++
++  ScopedUnpackStateButAlignmentReset reset_unpack(
++      api(), feature_info_->gl_version_info().is_es3, false);
++  glTexSubImage2DRobustANGLE(target, 0, 0, 0, width, height, format, type,
++                             buffer_size, pixels);
++
++  glPixelStorei(GL_UNPACK_ALIGNMENT, prev_alignment);
++
++  return error::kNoError;
++}
++
++error::Error GLES2DecoderPassthroughImpl::DoReleaseBufferSKYPE(
++    const std::string& name) {
++  if (buffer_manager_service_) {
++    buffer_manager_service_->ReleaseBuffer(name);
++  }
++
++  return error::kNoError;
++}
++
+ }  // namespace gles2
+ }  // namespace gpu
+diff --git a/gpu/command_buffer/service/gles2_cmd_decoder_passthrough_handlers.cc b/gpu/command_buffer/service/gles2_cmd_decoder_passthrough_handlers.cc
+index d681ee61fee75072032d3f0c00aa612cd34a8d48..5895dcb2ed2cfdd4bb42c95474be7161d6f3cd85 100644
+--- a/gpu/command_buffer/service/gles2_cmd_decoder_passthrough_handlers.cc
++++ b/gpu/command_buffer/service/gles2_cmd_decoder_passthrough_handlers.cc
+@@ -2723,5 +2723,40 @@ error::Error GLES2DecoderPassthroughImpl::HandleDestroyGpuFenceCHROMIUM(
+   return DoDestroyGpuFenceCHROMIUM(gpu_fence_id);
+ }
+ 
++error::Error GLES2DecoderPassthroughImpl::HandleUpdateTextureSKYPEBucket(
++    uint32_t immediate_data_size,
++    const volatile void* cmd_data) {
++  const volatile auto& c =
++      *static_cast<const volatile gles2::cmds::UpdateTextureSKYPEBucket*>(
++          cmd_data);
++  Bucket* bucket = GetBucket(c.buffer_name_bucket_id);
++  if (!bucket || bucket->size() == 0) {
++    return error::kInvalidArguments;
++  }
++  std::string buffer_name;
++  if (!bucket->GetAsString(&buffer_name)) {
++    return error::kInvalidArguments;
++  }
++  return DoUpdateTextureSKYPE(c.target, c.width, c.height, c.format, c.type,
++                              buffer_name, c.buffer_offset);
++}
++
++error::Error GLES2DecoderPassthroughImpl::HandleReleaseBufferSKYPEBucket(
++    uint32_t immediate_data_size,
++    const volatile void* cmd_data) {
++  const volatile auto& c =
++      *static_cast<const volatile gles2::cmds::ReleaseBufferSKYPEBucket*>(
++          cmd_data);
++  Bucket* bucket = GetBucket(c.name_bucket_id);
++  if (!bucket || bucket->size() == 0) {
++    return error::kInvalidArguments;
++  }
++  std::string name;
++  if (!bucket->GetAsString(&name)) {
++    return error::kInvalidArguments;
++  }
++  return DoReleaseBufferSKYPE(name);
++}
++
+ }  // namespace gles2
+ }  // namespace gpu
+diff --git a/media/renderers/video_resource_updater.cc b/media/renderers/video_resource_updater.cc
+index e22b5e030b9b6a07ac3da042587789e10a0d0b6c..491921d402339642b6d2fd3cc9a43ab0dcc76ae1 100644
+--- a/media/renderers/video_resource_updater.cc
++++ b/media/renderers/video_resource_updater.cc
+@@ -53,6 +53,8 @@
+ #include "ui/gl/gl_enums.h"
+ #include "ui/gl/trace_util.h"
+ 
++#include "microsoft/src/skype_video/shared_memory.h"
++
+ namespace media {
+ namespace {
+ 
+@@ -467,6 +469,10 @@ VideoResourceUpdater::VideoResourceUpdater(
+ VideoResourceUpdater::~VideoResourceUpdater() {
+   base::trace_event::MemoryDumpManager::GetInstance()->UnregisterDumpProvider(
+       this);
++
++  for (const auto& it : buffer_map_) {
++    ReleaseBuffer(it.first);
++  }
+ }
+ 
+ void VideoResourceUpdater::ObtainFrameResources(
+@@ -664,6 +670,7 @@ void VideoResourceUpdater::AppendQuads(viz::RenderPass* render_pass,
+ VideoFrameExternalResources
+ VideoResourceUpdater::CreateExternalResourcesFromVideoFrame(
+     scoped_refptr<VideoFrame> video_frame) {
++  CleanupBuffers();
+   if (video_frame->format() == PIXEL_FORMAT_UNKNOWN)
+     return VideoFrameExternalResources();
+   DCHECK(video_frame->HasTextures() || video_frame->IsMappable());
+@@ -760,6 +767,29 @@ VideoResourceUpdater::PlaneResource* VideoResourceUpdater::AllocateResource(
+   return all_resources_.back().get();
+ }
+ 
++void VideoResourceUpdater::CleanupBuffers() {
++  std::vector<std::string> names;
++
++  for (const auto& it : buffer_map_) {
++    if (it.second.expired()) {
++      names.emplace_back(it.first);
++    }
++  }
++
++  for (const auto& name : names) {
++    buffer_map_.erase(name);
++    ReleaseBuffer(name);
++  }
++}
++
++void VideoResourceUpdater::ReleaseBuffer(const std::string& name) {
++  if (context_provider_) {
++    if (auto* gl = context_provider_->ContextGL()) {
++      gl->ReleaseBufferSKYPE(name.c_str());
++    }
++  }
++}
++
+ void VideoResourceUpdater::CopyHardwarePlane(
+     VideoFrame* video_frame,
+     const gfx::ColorSpace& resource_color_space,
+@@ -1156,6 +1186,24 @@ VideoFrameExternalResources VideoResourceUpdater::CreateForSoftwarePlanes(
+     // |resource_size_pixels| is the size of the destination resource.
+     const gfx::Size resource_size_pixels = plane_resource->resource_size();
+ 
++    if (!video_frame->buffer_name.empty()) {
++      buffer_map_.emplace(video_frame->buffer_name, video_frame->buffer);
++
++      auto* gl = context_provider_->ContextGL();
++      {
++        HardwarePlaneResource::ScopedTexture scope(gl, plane_resource);
++        gl->BindTexture(plane_resource->texture_target(), scope.texture_id());
++        gl->UpdateTextureSKYPE(
++            plane_resource->texture_target(), resource_size_pixels.width(),
++            resource_size_pixels.height(), GLDataFormat(plane_resource_format),
++            GLDataType(plane_resource_format), video_frame->buffer_name.c_str(),
++            video_frame->data(i) - video_frame->data(0));
++      }
++
++      plane_resource->SetUniqueId(video_frame->unique_id(), i);
++      continue;
++    }
++
+     const size_t bytes_per_row =
+         viz::ResourceSizes::CheckedWidthInBytes<size_t>(
+             resource_size_pixels.width(), plane_resource_format);
+diff --git a/media/renderers/video_resource_updater.h b/media/renderers/video_resource_updater.h
+index c66b79432107b1281cac11e5f6f12a6d928b8828..d27b6c6270e820e4d0630f584a791b6ed69749e7 100644
+--- a/media/renderers/video_resource_updater.h
++++ b/media/renderers/video_resource_updater.h
+@@ -9,6 +9,7 @@
+ #include <stdint.h>
+ 
+ #include <list>
++#include <map>
+ #include <memory>
+ #include <vector>
+ 
+@@ -40,6 +41,10 @@ class RenderPass;
+ class SharedBitmapReporter;
+ }  // namespace viz
+ 
++namespace microsoft {
++class SharedMemory;
++}
++
+ namespace media {
+ class PaintCanvasVideoRenderer;
+ class VideoFrame;
+@@ -162,6 +167,9 @@ class MEDIA_EXPORT VideoResourceUpdater
+                                   viz::ResourceFormat format,
+                                   const gfx::ColorSpace& color_space);
+ 
++  void CleanupBuffers();
++  void ReleaseBuffer(const std::string& name);
++
+   // Create a copy of a texture-backed source video frame in a new GL_TEXTURE_2D
+   // texture. This is used when there are multiple GPU threads (Android WebView)
+   // and the source video frame texture can't be used on the output GL context.
+@@ -229,6 +237,8 @@ class MEDIA_EXPORT VideoResourceUpdater
+   // we can reduce the number of allocations and data transfers.
+   std::vector<std::unique_ptr<PlaneResource>> all_resources_;
+ 
++  std::map<std::string, std::weak_ptr<const microsoft::SharedMemory>> buffer_map_;
++
+   base::WeakPtrFactory<VideoResourceUpdater> weak_ptr_factory_{this};
+ 
+   DISALLOW_COPY_AND_ASSIGN(VideoResourceUpdater);

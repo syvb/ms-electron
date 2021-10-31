@@ -1,0 +1,18 @@
+# https://domoreexp.visualstudio.com/Teamspace/_build?definitionId=2906
+
+trigger: none
+
+parameters:
+- name: buildId
+  displayName: Electron build ID
+  type: number
+- name: ignoreTestFailures
+  displayName: Ignore failed tests
+  type: boolean
+  default: false
+
+jobs:
+- template: templates/multi_job/run_javascript_tests.yml
+  parameters:
+    buildId: ${{ parameters.buildId }}
+    ignoreTestFailures: ${{ parameters.ignoreTestFailures }}

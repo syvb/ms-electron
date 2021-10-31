@@ -1,0 +1,430 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Aleksei Kuzmin <alkuzmin@microsoft.com>
+Date: Wed, 27 Feb 2019 14:47:59 +0100
+Subject: build: fix FFmpeg Slim config
+
+Microsoft patch
+
+diff --git a/chromium/config/Slim/linux/arm-neon/libavcodec/codec_list.c b/chromium/config/Slim/linux/arm-neon/libavcodec/codec_list.c
+index 49f757b2d864eaf552ea0a64f11ca70b3bfaa094..48f2ea132dc9b93e4425cb65d0b5336e2229367f 100644
+--- a/chromium/config/Slim/linux/arm-neon/libavcodec/codec_list.c
++++ b/chromium/config/Slim/linux/arm-neon/libavcodec/codec_list.c
+@@ -1,20 +1,6 @@
+ static const AVCodec * const codec_list[] = {
+     &ff_h264_decoder,
+-    &ff_theora_decoder,
+-    &ff_vp3_decoder,
+-    &ff_vp8_decoder,
+     &ff_aac_decoder,
+     &ff_flac_decoder,
+-    &ff_mp3_decoder,
+-    &ff_vorbis_decoder,
+-    &ff_pcm_alaw_decoder,
+-    &ff_pcm_f32le_decoder,
+-    &ff_pcm_mulaw_decoder,
+-    &ff_pcm_s16be_decoder,
+-    &ff_pcm_s16le_decoder,
+-    &ff_pcm_s24be_decoder,
+-    &ff_pcm_s24le_decoder,
+-    &ff_pcm_s32le_decoder,
+-    &ff_pcm_u8_decoder,
+     &ff_libopus_decoder,
+     NULL };
+diff --git a/chromium/config/Slim/linux/arm-neon/libavcodec/parser_list.c b/chromium/config/Slim/linux/arm-neon/libavcodec/parser_list.c
+index 50acddb28e5db32656e3cb79566cfee6a65f3070..9f5a850fa526e57b61a309c9ee21563b0ab103c8 100644
+--- a/chromium/config/Slim/linux/arm-neon/libavcodec/parser_list.c
++++ b/chromium/config/Slim/linux/arm-neon/libavcodec/parser_list.c
+@@ -4,7 +4,6 @@ static const AVCodecParser * const parser_list[] = {
+     &ff_h264_parser,
+     &ff_mpegaudio_parser,
+     &ff_opus_parser,
+-    &ff_vorbis_parser,
+     &ff_vp3_parser,
+     &ff_vp8_parser,
+     &ff_vp9_parser,
+diff --git a/chromium/config/Slim/linux/arm-neon/libavformat/demuxer_list.c b/chromium/config/Slim/linux/arm-neon/libavformat/demuxer_list.c
+index 920b22bfa7d9d14f9b996cf57d6be346730753e4..76ef066a176a6ab143f13e28acfc0ecf18ea50a0 100644
+--- a/chromium/config/Slim/linux/arm-neon/libavformat/demuxer_list.c
++++ b/chromium/config/Slim/linux/arm-neon/libavformat/demuxer_list.c
+@@ -5,5 +5,4 @@ static const AVInputFormat * const demuxer_list[] = {
+     &ff_mov_demuxer,
+     &ff_mp3_demuxer,
+     &ff_ogg_demuxer,
+-    &ff_wav_demuxer,
+     NULL };
+diff --git a/chromium/config/Slim/linux/arm/libavcodec/codec_list.c b/chromium/config/Slim/linux/arm/libavcodec/codec_list.c
+index 49f757b2d864eaf552ea0a64f11ca70b3bfaa094..48f2ea132dc9b93e4425cb65d0b5336e2229367f 100644
+--- a/chromium/config/Slim/linux/arm/libavcodec/codec_list.c
++++ b/chromium/config/Slim/linux/arm/libavcodec/codec_list.c
+@@ -1,20 +1,6 @@
+ static const AVCodec * const codec_list[] = {
+     &ff_h264_decoder,
+-    &ff_theora_decoder,
+-    &ff_vp3_decoder,
+-    &ff_vp8_decoder,
+     &ff_aac_decoder,
+     &ff_flac_decoder,
+-    &ff_mp3_decoder,
+-    &ff_vorbis_decoder,
+-    &ff_pcm_alaw_decoder,
+-    &ff_pcm_f32le_decoder,
+-    &ff_pcm_mulaw_decoder,
+-    &ff_pcm_s16be_decoder,
+-    &ff_pcm_s16le_decoder,
+-    &ff_pcm_s24be_decoder,
+-    &ff_pcm_s24le_decoder,
+-    &ff_pcm_s32le_decoder,
+-    &ff_pcm_u8_decoder,
+     &ff_libopus_decoder,
+     NULL };
+diff --git a/chromium/config/Slim/linux/arm/libavcodec/parser_list.c b/chromium/config/Slim/linux/arm/libavcodec/parser_list.c
+index 50acddb28e5db32656e3cb79566cfee6a65f3070..9f5a850fa526e57b61a309c9ee21563b0ab103c8 100644
+--- a/chromium/config/Slim/linux/arm/libavcodec/parser_list.c
++++ b/chromium/config/Slim/linux/arm/libavcodec/parser_list.c
+@@ -4,7 +4,6 @@ static const AVCodecParser * const parser_list[] = {
+     &ff_h264_parser,
+     &ff_mpegaudio_parser,
+     &ff_opus_parser,
+-    &ff_vorbis_parser,
+     &ff_vp3_parser,
+     &ff_vp8_parser,
+     &ff_vp9_parser,
+diff --git a/chromium/config/Slim/linux/arm/libavformat/demuxer_list.c b/chromium/config/Slim/linux/arm/libavformat/demuxer_list.c
+index 920b22bfa7d9d14f9b996cf57d6be346730753e4..76ef066a176a6ab143f13e28acfc0ecf18ea50a0 100644
+--- a/chromium/config/Slim/linux/arm/libavformat/demuxer_list.c
++++ b/chromium/config/Slim/linux/arm/libavformat/demuxer_list.c
+@@ -5,5 +5,4 @@ static const AVInputFormat * const demuxer_list[] = {
+     &ff_mov_demuxer,
+     &ff_mp3_demuxer,
+     &ff_ogg_demuxer,
+-    &ff_wav_demuxer,
+     NULL };
+diff --git a/chromium/config/Slim/linux/arm64/libavcodec/codec_list.c b/chromium/config/Slim/linux/arm64/libavcodec/codec_list.c
+index 49f757b2d864eaf552ea0a64f11ca70b3bfaa094..48f2ea132dc9b93e4425cb65d0b5336e2229367f 100644
+--- a/chromium/config/Slim/linux/arm64/libavcodec/codec_list.c
++++ b/chromium/config/Slim/linux/arm64/libavcodec/codec_list.c
+@@ -1,20 +1,6 @@
+ static const AVCodec * const codec_list[] = {
+     &ff_h264_decoder,
+-    &ff_theora_decoder,
+-    &ff_vp3_decoder,
+-    &ff_vp8_decoder,
+     &ff_aac_decoder,
+     &ff_flac_decoder,
+-    &ff_mp3_decoder,
+-    &ff_vorbis_decoder,
+-    &ff_pcm_alaw_decoder,
+-    &ff_pcm_f32le_decoder,
+-    &ff_pcm_mulaw_decoder,
+-    &ff_pcm_s16be_decoder,
+-    &ff_pcm_s16le_decoder,
+-    &ff_pcm_s24be_decoder,
+-    &ff_pcm_s24le_decoder,
+-    &ff_pcm_s32le_decoder,
+-    &ff_pcm_u8_decoder,
+     &ff_libopus_decoder,
+     NULL };
+diff --git a/chromium/config/Slim/linux/arm64/libavcodec/parser_list.c b/chromium/config/Slim/linux/arm64/libavcodec/parser_list.c
+index 50acddb28e5db32656e3cb79566cfee6a65f3070..9f5a850fa526e57b61a309c9ee21563b0ab103c8 100644
+--- a/chromium/config/Slim/linux/arm64/libavcodec/parser_list.c
++++ b/chromium/config/Slim/linux/arm64/libavcodec/parser_list.c
+@@ -4,7 +4,6 @@ static const AVCodecParser * const parser_list[] = {
+     &ff_h264_parser,
+     &ff_mpegaudio_parser,
+     &ff_opus_parser,
+-    &ff_vorbis_parser,
+     &ff_vp3_parser,
+     &ff_vp8_parser,
+     &ff_vp9_parser,
+diff --git a/chromium/config/Slim/linux/arm64/libavformat/demuxer_list.c b/chromium/config/Slim/linux/arm64/libavformat/demuxer_list.c
+index 920b22bfa7d9d14f9b996cf57d6be346730753e4..76ef066a176a6ab143f13e28acfc0ecf18ea50a0 100644
+--- a/chromium/config/Slim/linux/arm64/libavformat/demuxer_list.c
++++ b/chromium/config/Slim/linux/arm64/libavformat/demuxer_list.c
+@@ -5,5 +5,4 @@ static const AVInputFormat * const demuxer_list[] = {
+     &ff_mov_demuxer,
+     &ff_mp3_demuxer,
+     &ff_ogg_demuxer,
+-    &ff_wav_demuxer,
+     NULL };
+diff --git a/chromium/config/Slim/linux/ia32/libavcodec/codec_list.c b/chromium/config/Slim/linux/ia32/libavcodec/codec_list.c
+index 49f757b2d864eaf552ea0a64f11ca70b3bfaa094..48f2ea132dc9b93e4425cb65d0b5336e2229367f 100644
+--- a/chromium/config/Slim/linux/ia32/libavcodec/codec_list.c
++++ b/chromium/config/Slim/linux/ia32/libavcodec/codec_list.c
+@@ -1,20 +1,6 @@
+ static const AVCodec * const codec_list[] = {
+     &ff_h264_decoder,
+-    &ff_theora_decoder,
+-    &ff_vp3_decoder,
+-    &ff_vp8_decoder,
+     &ff_aac_decoder,
+     &ff_flac_decoder,
+-    &ff_mp3_decoder,
+-    &ff_vorbis_decoder,
+-    &ff_pcm_alaw_decoder,
+-    &ff_pcm_f32le_decoder,
+-    &ff_pcm_mulaw_decoder,
+-    &ff_pcm_s16be_decoder,
+-    &ff_pcm_s16le_decoder,
+-    &ff_pcm_s24be_decoder,
+-    &ff_pcm_s24le_decoder,
+-    &ff_pcm_s32le_decoder,
+-    &ff_pcm_u8_decoder,
+     &ff_libopus_decoder,
+     NULL };
+diff --git a/chromium/config/Slim/linux/ia32/libavcodec/parser_list.c b/chromium/config/Slim/linux/ia32/libavcodec/parser_list.c
+index 50acddb28e5db32656e3cb79566cfee6a65f3070..9f5a850fa526e57b61a309c9ee21563b0ab103c8 100644
+--- a/chromium/config/Slim/linux/ia32/libavcodec/parser_list.c
++++ b/chromium/config/Slim/linux/ia32/libavcodec/parser_list.c
+@@ -4,7 +4,6 @@ static const AVCodecParser * const parser_list[] = {
+     &ff_h264_parser,
+     &ff_mpegaudio_parser,
+     &ff_opus_parser,
+-    &ff_vorbis_parser,
+     &ff_vp3_parser,
+     &ff_vp8_parser,
+     &ff_vp9_parser,
+diff --git a/chromium/config/Slim/linux/ia32/libavformat/demuxer_list.c b/chromium/config/Slim/linux/ia32/libavformat/demuxer_list.c
+index 920b22bfa7d9d14f9b996cf57d6be346730753e4..76ef066a176a6ab143f13e28acfc0ecf18ea50a0 100644
+--- a/chromium/config/Slim/linux/ia32/libavformat/demuxer_list.c
++++ b/chromium/config/Slim/linux/ia32/libavformat/demuxer_list.c
+@@ -5,5 +5,4 @@ static const AVInputFormat * const demuxer_list[] = {
+     &ff_mov_demuxer,
+     &ff_mp3_demuxer,
+     &ff_ogg_demuxer,
+-    &ff_wav_demuxer,
+     NULL };
+diff --git a/chromium/config/Slim/linux/x64/libavcodec/codec_list.c b/chromium/config/Slim/linux/x64/libavcodec/codec_list.c
+index 49f757b2d864eaf552ea0a64f11ca70b3bfaa094..48f2ea132dc9b93e4425cb65d0b5336e2229367f 100644
+--- a/chromium/config/Slim/linux/x64/libavcodec/codec_list.c
++++ b/chromium/config/Slim/linux/x64/libavcodec/codec_list.c
+@@ -1,20 +1,6 @@
+ static const AVCodec * const codec_list[] = {
+     &ff_h264_decoder,
+-    &ff_theora_decoder,
+-    &ff_vp3_decoder,
+-    &ff_vp8_decoder,
+     &ff_aac_decoder,
+     &ff_flac_decoder,
+-    &ff_mp3_decoder,
+-    &ff_vorbis_decoder,
+-    &ff_pcm_alaw_decoder,
+-    &ff_pcm_f32le_decoder,
+-    &ff_pcm_mulaw_decoder,
+-    &ff_pcm_s16be_decoder,
+-    &ff_pcm_s16le_decoder,
+-    &ff_pcm_s24be_decoder,
+-    &ff_pcm_s24le_decoder,
+-    &ff_pcm_s32le_decoder,
+-    &ff_pcm_u8_decoder,
+     &ff_libopus_decoder,
+     NULL };
+diff --git a/chromium/config/Slim/linux/x64/libavcodec/parser_list.c b/chromium/config/Slim/linux/x64/libavcodec/parser_list.c
+index 50acddb28e5db32656e3cb79566cfee6a65f3070..9f5a850fa526e57b61a309c9ee21563b0ab103c8 100644
+--- a/chromium/config/Slim/linux/x64/libavcodec/parser_list.c
++++ b/chromium/config/Slim/linux/x64/libavcodec/parser_list.c
+@@ -4,7 +4,6 @@ static const AVCodecParser * const parser_list[] = {
+     &ff_h264_parser,
+     &ff_mpegaudio_parser,
+     &ff_opus_parser,
+-    &ff_vorbis_parser,
+     &ff_vp3_parser,
+     &ff_vp8_parser,
+     &ff_vp9_parser,
+diff --git a/chromium/config/Slim/linux/x64/libavformat/demuxer_list.c b/chromium/config/Slim/linux/x64/libavformat/demuxer_list.c
+index 920b22bfa7d9d14f9b996cf57d6be346730753e4..76ef066a176a6ab143f13e28acfc0ecf18ea50a0 100644
+--- a/chromium/config/Slim/linux/x64/libavformat/demuxer_list.c
++++ b/chromium/config/Slim/linux/x64/libavformat/demuxer_list.c
+@@ -5,5 +5,4 @@ static const AVInputFormat * const demuxer_list[] = {
+     &ff_mov_demuxer,
+     &ff_mp3_demuxer,
+     &ff_ogg_demuxer,
+-    &ff_wav_demuxer,
+     NULL };
+diff --git a/chromium/config/Slim/mac/x64/libavcodec/codec_list.c b/chromium/config/Slim/mac/x64/libavcodec/codec_list.c
+index 49f757b2d864eaf552ea0a64f11ca70b3bfaa094..48f2ea132dc9b93e4425cb65d0b5336e2229367f 100644
+--- a/chromium/config/Slim/mac/x64/libavcodec/codec_list.c
++++ b/chromium/config/Slim/mac/x64/libavcodec/codec_list.c
+@@ -1,20 +1,6 @@
+ static const AVCodec * const codec_list[] = {
+     &ff_h264_decoder,
+-    &ff_theora_decoder,
+-    &ff_vp3_decoder,
+-    &ff_vp8_decoder,
+     &ff_aac_decoder,
+     &ff_flac_decoder,
+-    &ff_mp3_decoder,
+-    &ff_vorbis_decoder,
+-    &ff_pcm_alaw_decoder,
+-    &ff_pcm_f32le_decoder,
+-    &ff_pcm_mulaw_decoder,
+-    &ff_pcm_s16be_decoder,
+-    &ff_pcm_s16le_decoder,
+-    &ff_pcm_s24be_decoder,
+-    &ff_pcm_s24le_decoder,
+-    &ff_pcm_s32le_decoder,
+-    &ff_pcm_u8_decoder,
+     &ff_libopus_decoder,
+     NULL };
+diff --git a/chromium/config/Slim/mac/x64/libavcodec/parser_list.c b/chromium/config/Slim/mac/x64/libavcodec/parser_list.c
+index 50acddb28e5db32656e3cb79566cfee6a65f3070..9f5a850fa526e57b61a309c9ee21563b0ab103c8 100644
+--- a/chromium/config/Slim/mac/x64/libavcodec/parser_list.c
++++ b/chromium/config/Slim/mac/x64/libavcodec/parser_list.c
+@@ -4,7 +4,6 @@ static const AVCodecParser * const parser_list[] = {
+     &ff_h264_parser,
+     &ff_mpegaudio_parser,
+     &ff_opus_parser,
+-    &ff_vorbis_parser,
+     &ff_vp3_parser,
+     &ff_vp8_parser,
+     &ff_vp9_parser,
+diff --git a/chromium/config/Slim/mac/x64/libavformat/demuxer_list.c b/chromium/config/Slim/mac/x64/libavformat/demuxer_list.c
+index 920b22bfa7d9d14f9b996cf57d6be346730753e4..76ef066a176a6ab143f13e28acfc0ecf18ea50a0 100644
+--- a/chromium/config/Slim/mac/x64/libavformat/demuxer_list.c
++++ b/chromium/config/Slim/mac/x64/libavformat/demuxer_list.c
+@@ -5,5 +5,4 @@ static const AVInputFormat * const demuxer_list[] = {
+     &ff_mov_demuxer,
+     &ff_mp3_demuxer,
+     &ff_ogg_demuxer,
+-    &ff_wav_demuxer,
+     NULL };
+diff --git a/chromium/config/Slim/win/arm64/libavcodec/codec_list.c b/chromium/config/Slim/win/arm64/libavcodec/codec_list.c
+index 49f757b2d864eaf552ea0a64f11ca70b3bfaa094..48f2ea132dc9b93e4425cb65d0b5336e2229367f 100644
+--- a/chromium/config/Slim/win/arm64/libavcodec/codec_list.c
++++ b/chromium/config/Slim/win/arm64/libavcodec/codec_list.c
+@@ -1,20 +1,6 @@
+ static const AVCodec * const codec_list[] = {
+     &ff_h264_decoder,
+-    &ff_theora_decoder,
+-    &ff_vp3_decoder,
+-    &ff_vp8_decoder,
+     &ff_aac_decoder,
+     &ff_flac_decoder,
+-    &ff_mp3_decoder,
+-    &ff_vorbis_decoder,
+-    &ff_pcm_alaw_decoder,
+-    &ff_pcm_f32le_decoder,
+-    &ff_pcm_mulaw_decoder,
+-    &ff_pcm_s16be_decoder,
+-    &ff_pcm_s16le_decoder,
+-    &ff_pcm_s24be_decoder,
+-    &ff_pcm_s24le_decoder,
+-    &ff_pcm_s32le_decoder,
+-    &ff_pcm_u8_decoder,
+     &ff_libopus_decoder,
+     NULL };
+diff --git a/chromium/config/Slim/win/arm64/libavcodec/parser_list.c b/chromium/config/Slim/win/arm64/libavcodec/parser_list.c
+index 50acddb28e5db32656e3cb79566cfee6a65f3070..9f5a850fa526e57b61a309c9ee21563b0ab103c8 100644
+--- a/chromium/config/Slim/win/arm64/libavcodec/parser_list.c
++++ b/chromium/config/Slim/win/arm64/libavcodec/parser_list.c
+@@ -4,7 +4,6 @@ static const AVCodecParser * const parser_list[] = {
+     &ff_h264_parser,
+     &ff_mpegaudio_parser,
+     &ff_opus_parser,
+-    &ff_vorbis_parser,
+     &ff_vp3_parser,
+     &ff_vp8_parser,
+     &ff_vp9_parser,
+diff --git a/chromium/config/Slim/win/arm64/libavformat/demuxer_list.c b/chromium/config/Slim/win/arm64/libavformat/demuxer_list.c
+index 920b22bfa7d9d14f9b996cf57d6be346730753e4..76ef066a176a6ab143f13e28acfc0ecf18ea50a0 100644
+--- a/chromium/config/Slim/win/arm64/libavformat/demuxer_list.c
++++ b/chromium/config/Slim/win/arm64/libavformat/demuxer_list.c
+@@ -5,5 +5,4 @@ static const AVInputFormat * const demuxer_list[] = {
+     &ff_mov_demuxer,
+     &ff_mp3_demuxer,
+     &ff_ogg_demuxer,
+-    &ff_wav_demuxer,
+     NULL };
+diff --git a/chromium/config/Slim/win/ia32/libavcodec/codec_list.c b/chromium/config/Slim/win/ia32/libavcodec/codec_list.c
+index 49f757b2d864eaf552ea0a64f11ca70b3bfaa094..48f2ea132dc9b93e4425cb65d0b5336e2229367f 100644
+--- a/chromium/config/Slim/win/ia32/libavcodec/codec_list.c
++++ b/chromium/config/Slim/win/ia32/libavcodec/codec_list.c
+@@ -1,20 +1,6 @@
+ static const AVCodec * const codec_list[] = {
+     &ff_h264_decoder,
+-    &ff_theora_decoder,
+-    &ff_vp3_decoder,
+-    &ff_vp8_decoder,
+     &ff_aac_decoder,
+     &ff_flac_decoder,
+-    &ff_mp3_decoder,
+-    &ff_vorbis_decoder,
+-    &ff_pcm_alaw_decoder,
+-    &ff_pcm_f32le_decoder,
+-    &ff_pcm_mulaw_decoder,
+-    &ff_pcm_s16be_decoder,
+-    &ff_pcm_s16le_decoder,
+-    &ff_pcm_s24be_decoder,
+-    &ff_pcm_s24le_decoder,
+-    &ff_pcm_s32le_decoder,
+-    &ff_pcm_u8_decoder,
+     &ff_libopus_decoder,
+     NULL };
+diff --git a/chromium/config/Slim/win/ia32/libavcodec/parser_list.c b/chromium/config/Slim/win/ia32/libavcodec/parser_list.c
+index 50acddb28e5db32656e3cb79566cfee6a65f3070..9f5a850fa526e57b61a309c9ee21563b0ab103c8 100644
+--- a/chromium/config/Slim/win/ia32/libavcodec/parser_list.c
++++ b/chromium/config/Slim/win/ia32/libavcodec/parser_list.c
+@@ -4,7 +4,6 @@ static const AVCodecParser * const parser_list[] = {
+     &ff_h264_parser,
+     &ff_mpegaudio_parser,
+     &ff_opus_parser,
+-    &ff_vorbis_parser,
+     &ff_vp3_parser,
+     &ff_vp8_parser,
+     &ff_vp9_parser,
+diff --git a/chromium/config/Slim/win/ia32/libavformat/demuxer_list.c b/chromium/config/Slim/win/ia32/libavformat/demuxer_list.c
+index 920b22bfa7d9d14f9b996cf57d6be346730753e4..76ef066a176a6ab143f13e28acfc0ecf18ea50a0 100644
+--- a/chromium/config/Slim/win/ia32/libavformat/demuxer_list.c
++++ b/chromium/config/Slim/win/ia32/libavformat/demuxer_list.c
+@@ -5,5 +5,4 @@ static const AVInputFormat * const demuxer_list[] = {
+     &ff_mov_demuxer,
+     &ff_mp3_demuxer,
+     &ff_ogg_demuxer,
+-    &ff_wav_demuxer,
+     NULL };
+diff --git a/chromium/config/Slim/win/x64/libavcodec/codec_list.c b/chromium/config/Slim/win/x64/libavcodec/codec_list.c
+index 49f757b2d864eaf552ea0a64f11ca70b3bfaa094..48f2ea132dc9b93e4425cb65d0b5336e2229367f 100644
+--- a/chromium/config/Slim/win/x64/libavcodec/codec_list.c
++++ b/chromium/config/Slim/win/x64/libavcodec/codec_list.c
+@@ -1,20 +1,6 @@
+ static const AVCodec * const codec_list[] = {
+     &ff_h264_decoder,
+-    &ff_theora_decoder,
+-    &ff_vp3_decoder,
+-    &ff_vp8_decoder,
+     &ff_aac_decoder,
+     &ff_flac_decoder,
+-    &ff_mp3_decoder,
+-    &ff_vorbis_decoder,
+-    &ff_pcm_alaw_decoder,
+-    &ff_pcm_f32le_decoder,
+-    &ff_pcm_mulaw_decoder,
+-    &ff_pcm_s16be_decoder,
+-    &ff_pcm_s16le_decoder,
+-    &ff_pcm_s24be_decoder,
+-    &ff_pcm_s24le_decoder,
+-    &ff_pcm_s32le_decoder,
+-    &ff_pcm_u8_decoder,
+     &ff_libopus_decoder,
+     NULL };
+diff --git a/chromium/config/Slim/win/x64/libavcodec/parser_list.c b/chromium/config/Slim/win/x64/libavcodec/parser_list.c
+index 50acddb28e5db32656e3cb79566cfee6a65f3070..9f5a850fa526e57b61a309c9ee21563b0ab103c8 100644
+--- a/chromium/config/Slim/win/x64/libavcodec/parser_list.c
++++ b/chromium/config/Slim/win/x64/libavcodec/parser_list.c
+@@ -4,7 +4,6 @@ static const AVCodecParser * const parser_list[] = {
+     &ff_h264_parser,
+     &ff_mpegaudio_parser,
+     &ff_opus_parser,
+-    &ff_vorbis_parser,
+     &ff_vp3_parser,
+     &ff_vp8_parser,
+     &ff_vp9_parser,
+diff --git a/chromium/config/Slim/win/x64/libavformat/demuxer_list.c b/chromium/config/Slim/win/x64/libavformat/demuxer_list.c
+index 920b22bfa7d9d14f9b996cf57d6be346730753e4..76ef066a176a6ab143f13e28acfc0ecf18ea50a0 100644
+--- a/chromium/config/Slim/win/x64/libavformat/demuxer_list.c
++++ b/chromium/config/Slim/win/x64/libavformat/demuxer_list.c
+@@ -5,5 +5,4 @@ static const AVInputFormat * const demuxer_list[] = {
+     &ff_mov_demuxer,
+     &ff_mp3_demuxer,
+     &ff_ogg_demuxer,
+-    &ff_wav_demuxer,
+     NULL };

@@ -1,0 +1,31 @@
+# Build FFmpeg on all supported platforms.
+
+parameters:
+- name: flavour
+  type: string
+  values: ['electron', 'media', 'teams', 'vscode']
+  default: teams
+- name: _configs
+  type: object
+  default:
+  - platform: linux
+    arches:
+    - arm
+    - arm64
+    - x64
+  - platform: mac
+    arches:
+    - x64
+  - platform: windows
+    arches:
+    - arm64
+    - x64
+    - x86
+
+jobs:
+- ${{ each config in parameters._configs }}:
+  - template: ../job/build_ffmpeg.yml
+    parameters:
+      arches: ${{ config.arches }}
+      flavour: ${{ parameters.flavour }}
+      platform: ${{ config.platform }}

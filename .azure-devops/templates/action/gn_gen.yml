@@ -1,0 +1,54 @@
+parameters:
+- name: arch
+  type: string
+  values: ['arm', 'arm64', 'x64', 'x86']
+- name: args  # A sequence of args in "key=value" format.
+  type: string
+  default: ''
+- name: asan
+  type: boolean
+  default: false
+- name: buildDirectory  # A relative path. E.g. "out/default".
+  type: string
+- name: buildType
+  type: string
+  values: ['ffmpeg', 'testing', 'release']
+- name: displayName
+  type: string
+  default: Generate build files
+- name: flavour
+  type: string
+  values: ['electron', 'media', 'teams', 'vscode']
+- name: mas
+  type: boolean
+  default: false
+- name: saveArgsFile
+  type: boolean
+  default: true
+- name: srcDirectory  # Full path to a "src/" directory.
+  type: string
+
+steps:
+- task: PythonScript@0
+  displayName: ${{ parameters.displayName }}
+  inputs:
+    scriptSource: filePath
+    scriptPath: ${{ parameters.srcDirectory }}/microsoft/scripts/gn_gen.py
+    # Check out how double quotes are used below to pass a string value
+    # as a GN argument.
+    arguments: >
+      ${{ parameters.buildDirectory }}
+      --args target_cpu="\"${{ parameters.arch }}\"" ${{ parameters.args }}
+      --asan ${{ parameters.asan }}
+      --build-config ${{ parameters.buildType }}
+      --for ${{ parameters.flavour }}
+      --mas ${{ parameters.mas }}
+      --print
+    failOnStderr: true
+    workingDirectory: ${{ parameters.srcDirectory }}
+
+- ${{ if eq(parameters.saveArgsFile, true) }}:
+  - template: copy_artifact.yml
+    parameters:
+      file: args.gn
+      sourceFolder: ${{ parameters.srcDirectory }}/${{ parameters.buildDirectory }}

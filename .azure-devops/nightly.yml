@@ -1,0 +1,45 @@
+# https://domoreexp.visualstudio.com/Teamspace/_build?definitionId=2602
+#
+# What we do in the shadows.
+
+trigger: none
+
+schedules:
+- cron: '0 2 * * *'  # At 2am every day.
+  displayName: Nightly builds
+  branches:
+    include:
+    - master
+    - release/*
+  always: false
+
+resources:
+  repositories:
+  - repository: SkypeSpaces-Infra
+    type: git
+    name: SkypeSpaces-Infra
+
+stages:
+- stage: build
+  displayName: Build Electron binaries
+  jobs:
+  - template: templates/build/build_electron_release.yml
+    parameters:
+      flavour: teams
+
+- stage: publish
+  displayName: Publish the binaries (dry run)
+  dependsOn: build
+  jobs:
+  - template: templates/job/publish_electron_to_azure.yml
+    parameters:
+      container: nightly-builds
+
+  - template: templates/job/publish_electron_to_upack.yml
+    parameters:
+      dryRun: true
+
+  - template: templates/job/publish_node_headers_to_azure.yml
+    parameters:
+      container: nightly-headers
+      storage: electron

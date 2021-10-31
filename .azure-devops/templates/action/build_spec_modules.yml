@@ -1,0 +1,46 @@
+# Builds Electron's native Node.js modules used for tests.
+# Assumes that Electron and Node.js headers are already built.
+
+parameters:
+  arch: ''  # {'arm64', 'x64', 'x86'}
+  buildDirectory: ''  # A path relative to the "src/out" dir.
+  platform: ''  # {'linux', 'mac', 'mas', windows'}
+  srcDirectory: ''  # An absolute path.
+  _specDirectories:
+  - spec
+  - spec-main
+
+steps:
+- ${{ if eq(parameters.platform, 'windows') }}:
+  # The library is needed to build native Node.js modules.
+  - template: copy_file.yml
+    parameters:
+      displayName: Copy a Node.js library
+      from: ${{ parameters.srcDirectory }}/out/${{ parameters.buildDirectory }}/electron.lib
+      to: ${{ parameters.srcDirectory }}/out/${{ parameters.buildDirectory }}/gen/node_headers/Release/node.lib
+
+# Run an empty set of JS tests runners just to generate Node.js modules.
+- script: npm run test -- --runners=,
+  workingDirectory: ${{ parameters.srcDirectory }}/electron
+  displayName: Build Node.js modules for JavaScript tests
+  failOnStderr: false
+  env:
+    ELECTRON_OUT_DIR: ${{ parameters.buildDirectory }}
+    NPM_CONFIG_ARCH: ${{ parameters.arch }}
+    NPM_CONFIG_TARGET_ARCH: ${{ parameters.arch }}
+
+- ${{ each dir in parameters._specDirectories }}:
+  - task: ArchiveFiles@2
+    displayName: Create a ${{ dir }} modules archive
+    inputs:
+      rootFolderOrFile: ${{ parameters.srcDirectory }}/electron/${{ dir }}/node_modules
+      includeRootFolder: false
+      archiveType: zip
+      archiveFile: $(Build.ArtifactStagingDirectory)/${{ dir }}_node_modules.zip
+
+# The ".hash" file is needed to prevent the modules to be reinstalled.
+# Its existence and contents will be checked by the spec runner script.
+- template: copy_artifact.yml
+  parameters:
+    file: .hash
+    sourceFolder: ${{ parameters.srcDirectory }}/electron/spec

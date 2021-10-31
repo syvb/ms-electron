@@ -1,0 +1,117 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Milan Burda <miburda@microsoft.com>
+Date: Wed, 1 Jul 2020 22:43:12 +0200
+Subject: feat: add child-process-gone event to app (#24367)
+
+Backport: https://github.com/electron/electron/pull/24367
+
+diff --git a/docs/api/app.md b/docs/api/app.md
+index bbd888339eab14330e61af50f646107dd5c63adc..f58ebbd2f839bfc1fa4249227c88d0cf0e22b606 100644
+--- a/docs/api/app.md
++++ b/docs/api/app.md
+@@ -351,7 +351,7 @@ page.
+ 
+ Emitted whenever there is a GPU info update.
+ 
+-### Event: 'gpu-process-crashed'
++### Event: 'gpu-process-crashed' _Deprecated_
+ 
+ Returns:
+ 
+@@ -360,6 +360,11 @@ Returns:
+ 
+ Emitted when the GPU process crashes or is killed.
+ 
++**Deprecated:** This event is superceded by the `child-process-gone` event
++which contains more information about why the child process dissapeared. It
++isn't always because it crashed.  The `killed` boolean can be replaced by
++checking `reason === 'killed'` when you switch to that event.
++
+ ### Event: 'renderer-process-crashed' _Deprecated_
+ 
+ Returns:
+@@ -394,6 +399,36 @@ Returns:
+ Emitted when the renderer process unexpectedly dissapears.  This is normally
+ because it was crashed or killed.
+ 
++#### Event: 'child-process-gone'
++
++Returns:
++
++* `event` Event
++* `details` Object
++  * `type` String - Process type. One of the following values:
++    * `Utility`
++    * `Zygote`
++    * `Sandbox helper`
++    * `GPU`
++    * `Pepper Plugin`
++    * `Pepper Plugin Broker`
++    * `Unknown`
++  * `reason` String - The reason the child process is gone. Possible values:
++    * `clean-exit` - Process exited with an exit code of zero
++    * `abnormal-exit` - Process exited with a non-zero exit code
++    * `killed` - Process was sent a SIGTERM or otherwise killed externally
++    * `crashed` - Process crashed
++    * `oom` - Process ran out of memory
++    * `launch-failure` - Process never successfully launched
++    * `integrity-failure` - Windows code integrity checks failed
++  * `exitCode` Number - The exit code for the process
++      (e.g. status from waitpid if on posix, from GetExitCodeProcess on Windows).
++  * `name` String (optional) - The name of the process. i.e. for plugins it might be Flash.
++    Examples for utility: `Audio Service`, `Content Decryption Module Service`, `Network Service`, `Video Capture`, etc.
++
++Emitted when the child process unexpectedly dissapears. This is normally
++because it was crashed or killed. It does not include renderer processes.
++
+ ### Event: 'accessibility-support-changed' _macOS_ _Windows_
+ 
+ Returns:
+diff --git a/shell/browser/api/electron_api_app.cc b/shell/browser/api/electron_api_app.cc
+index db5cd80f3b9c0c61cfff1731f36a054f74c1ca1d..1a13025ed53932f19cbbf95f98066de0d449baee 100644
+--- a/shell/browser/api/electron_api_app.cc
++++ b/shell/browser/api/electron_api_app.cc
+@@ -798,12 +798,28 @@ void App::BrowserChildProcessCrashed(
+     const content::ChildProcessData& data,
+     const content::ChildProcessTerminationInfo& info) {
+   ChildProcessDisconnected(base::GetProcId(data.GetProcess().Handle()));
++  BrowserChildProcessCrashedOrKilled(data, info);
+ }
+ 
+ void App::BrowserChildProcessKilled(
+     const content::ChildProcessData& data,
+     const content::ChildProcessTerminationInfo& info) {
+   ChildProcessDisconnected(base::GetProcId(data.GetProcess().Handle()));
++  BrowserChildProcessCrashedOrKilled(data, info);
++}
++
++void App::BrowserChildProcessCrashedOrKilled(
++    const content::ChildProcessData& data,
++    const content::ChildProcessTerminationInfo& info) {
++  v8::HandleScope handle_scope(isolate());
++  auto details = gin_helper::Dictionary::CreateEmpty(isolate());
++  details.Set("type", content::GetProcessTypeNameInEnglish(data.process_type));
++  details.Set("reason", info.status);
++  details.Set("exitCode", info.exit_code);
++  if (!data.name.empty()) {
++    details.Set("name", data.name);
++  }
++  Emit("child-process-gone", details);
+ }
+ 
+ void App::RenderProcessReady(content::RenderProcessHost* host) {
+diff --git a/shell/browser/api/electron_api_app.h b/shell/browser/api/electron_api_app.h
+index 0eea3ed9d176964094c631044bc641c91bbdaf24..f8209590f42ddde5e49bdd0b426c2113e3c79306 100644
+--- a/shell/browser/api/electron_api_app.h
++++ b/shell/browser/api/electron_api_app.h
+@@ -156,6 +156,10 @@ class App : public ElectronBrowserClient::Delegate,
+       const content::ChildProcessTerminationInfo& info) override;
+ 
+  private:
++  void BrowserChildProcessCrashedOrKilled(
++      const content::ChildProcessData& data,
++      const content::ChildProcessTerminationInfo& info);
++
+   void SetAppPath(const base::FilePath& app_path);
+   void ChildProcessLaunched(int process_type,
+                             base::ProcessHandle handle,

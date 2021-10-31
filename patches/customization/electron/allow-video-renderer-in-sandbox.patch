@@ -1,0 +1,152 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Milan Burda <miburda@microsoft.com>
+Date: Wed, 7 Nov 2018 21:47:21 +0100
+Subject: Implement
+ content::RenderProcessHostObserver::AllowVideoRendererInSandbox
+
+Microsoft patch
+
+diff --git a/docs/api/browser-window.md b/docs/api/browser-window.md
+index 8ef399fd0d41d633a41f08f4b90c01da2fc64ee5..f06ab5e9969799792115c63436aeeb5a735f4718 100644
+--- a/docs/api/browser-window.md
++++ b/docs/api/browser-window.md
+@@ -274,6 +274,7 @@ It creates a new `BrowserWindow` with native properties as set by the `options`.
+       OS-level sandbox and disabling the Node.js engine. This is not the same as
+       the `nodeIntegration` option and the APIs available to the preload script
+       are more limited. Read more about the option [here](sandbox-option.md).
++    * `allowVideoRendererInSandbox` Boolean (optional) - Enables ChromiumVideoRenderer in sandbox.
+     * `enableRemoteModule` Boolean (optional) - Whether to enable the [`remote`](remote.md) module.
+       Default is `false`.
+     * `session` [Session](session.md#class-session) (optional) - Sets the session used by the
+diff --git a/shell/browser/electron_browser_client.cc b/shell/browser/electron_browser_client.cc
+index 0a8af27fcadb512a072d57ad4e84ed535978c611..643258ec09e94673e08940f019c74ff87a9edbd7 100644
+--- a/shell/browser/electron_browser_client.cc
++++ b/shell/browser/electron_browser_client.cc
+@@ -561,6 +561,10 @@ void ElectronBrowserClient::RenderProcessWillLaunch(
+     prefs.disable_popups = web_preferences->IsEnabled("disablePopups");
+     prefs.web_security = web_preferences->IsEnabled(options::kWebSecurity,
+                                                     true /* default value */);
++#if BUILDFLAG(MICROSOFT_CHROMIUM_VIDEO_RENDERER)
++    prefs.allow_video_renderer_in_sandbox =
++        web_preferences->IsEnabled(options::kMsAllowVideoRendererInSandbox);
++#endif
+     prefs.browser_context = host->GetBrowserContext();
+   }
+ 
+@@ -1588,7 +1592,8 @@ void ElectronBrowserClient::OverrideURLLoaderFactoryParams(
+ 
+ #if defined(OS_WIN)
+ bool ElectronBrowserClient::PreSpawnRenderer(sandbox::TargetPolicy* policy,
+-                                             RendererSpawnFlags flags) {
++                                             RendererSpawnFlags flags,
++                                             int process_id) {
+   // Allow crashpad to communicate via named pipe.
+   sandbox::ResultCode result = policy->AddRule(
+       sandbox::TargetPolicy::SUBSYS_FILES,
+@@ -1597,6 +1602,13 @@ bool ElectronBrowserClient::PreSpawnRenderer(sandbox::TargetPolicy* policy,
+     return false;
+   return true;
+ }
++#if BUILDFLAG(MICROSOFT_CHROMIUM_VIDEO_RENDERER)
++bool ElectronBrowserClient::AllowVideoRendererInSandbox(int process_id) {
++  auto it = process_preferences_.find(process_id);
++  return it != process_preferences_.end() &&
++         it->second.allow_video_renderer_in_sandbox;
++}
++#endif  // BUILDFLAG(MICROSOFT_CHROMIUM_VIDEO_RENDERER)
+ #endif  // defined(OS_WIN)
+ 
+ bool ElectronBrowserClient::BindAssociatedReceiverFromFrame(
+diff --git a/shell/browser/electron_browser_client.h b/shell/browser/electron_browser_client.h
+index 7a4af135b55fba0b779b360d76d15506bd1d5c08..5895b4630bd4df299f98155a107206dac72cf32b 100644
+--- a/shell/browser/electron_browser_client.h
++++ b/shell/browser/electron_browser_client.h
+@@ -17,6 +17,7 @@
+ #include "content/public/browser/render_process_host_observer.h"
+ #include "content/public/browser/web_contents.h"
+ #include "electron/buildflags/buildflags.h"
++#include "microsoft/buildflags/buildflags.h"
+ #include "net/ssl/client_cert_identity.h"
+ 
+ namespace content {
+@@ -217,7 +218,11 @@ class ElectronBrowserClient : public content::ContentBrowserClient,
+       network::mojom::URLLoaderFactoryParams* factory_params) override;
+ #if defined(OS_WIN)
+   bool PreSpawnRenderer(sandbox::TargetPolicy* policy,
+-                        RendererSpawnFlags flags) override;
++                        RendererSpawnFlags flags,
++                        int process_id) override;
++#if BUILDFLAG(MICROSOFT_CHROMIUM_VIDEO_RENDERER)
++  bool AllowVideoRendererInSandbox(int process_id) override;
++#endif  //  BUILDFLAG(MICROSOFT_CHROMIUM_VIDEO_RENDERER)
+ #endif
+   bool BindAssociatedReceiverFromFrame(
+       content::RenderFrameHost* render_frame_host,
+@@ -277,6 +282,9 @@ class ElectronBrowserClient : public content::ContentBrowserClient,
+     bool native_window_open = false;
+     bool disable_popups = false;
+     bool web_security = true;
++#if BUILDFLAG(MICROSOFT_CHROMIUM_VIDEO_RENDERER)
++    bool allow_video_renderer_in_sandbox = false;
++#endif
+     content::BrowserContext* browser_context = nullptr;
+   };
+ 
+diff --git a/shell/browser/web_contents_preferences.cc b/shell/browser/web_contents_preferences.cc
+index e4a34b377d95bca0ce16db726822cac8426966c8..9da48a1b140adf256106f4de768d2ad91d570940 100644
+--- a/shell/browser/web_contents_preferences.cc
++++ b/shell/browser/web_contents_preferences.cc
+@@ -429,6 +429,15 @@ void WebContentsPreferences::AppendCommandLineSwitches(
+   if (IsEnabled(options::kEnableWebSQL))
+     command_line->AppendSwitch(switches::kEnableWebSQL);
+ 
++#if BUILDFLAG(MICROSOFT_CHROMIUM_VIDEO_RENDERER)
++#if defined(OS_MACOSX) || defined(OS_LINUX)
++  if (IsEnabled(options::kMsAllowVideoRendererInSandbox)) {
++    command_line->AppendSwitch(
++        service_manager::switches::kMsAllowVideorenderer);
++  }
++#endif
++#endif
++
+   // We are appending args to a webContents so let's save the current state
+   // of our preferences object so that during the lifetime of the WebContents
+   // we can fetch the options used to initally configure the WebContents
+diff --git a/shell/common/options_switches.cc b/shell/common/options_switches.cc
+index fc34a968e86eb04a99f568b3ba95ec74b6c60645..51fde62da4dfdc73b4122b0f41078d318a35de35 100644
+--- a/shell/common/options_switches.cc
++++ b/shell/common/options_switches.cc
+@@ -191,6 +191,10 @@ const char kEnableRemoteModule[] = "enableRemoteModule";
+ 
+ const char kEnableWebSQL[] = "enableWebSQL";
+ 
++#if BUILDFLAG(MICROSOFT_CHROMIUM_VIDEO_RENDERER)
++const char kMsAllowVideoRendererInSandbox[] = "allowVideoRendererInSandbox";
++#endif
++
+ }  // namespace options
+ 
+ namespace switches {
+diff --git a/shell/common/options_switches.h b/shell/common/options_switches.h
+index 51327694404215e880de094f5eb121ee2d77e413..8b896ae6ba3b79ee4c444b4e83a2ac4174af461c 100644
+--- a/shell/common/options_switches.h
++++ b/shell/common/options_switches.h
+@@ -6,6 +6,7 @@
+ #define SHELL_COMMON_OPTIONS_SWITCHES_H_
+ 
+ #include "electron/buildflags/buildflags.h"
++#include "microsoft/buildflags/buildflags.h"
+ 
+ namespace electron {
+ 
+@@ -96,6 +97,10 @@ extern const char kSpellcheck[];
+ extern const char kEnableRemoteModule[];
+ #endif
+ 
++#if BUILDFLAG(MICROSOFT_CHROMIUM_VIDEO_RENDERER)
++extern const char kMsAllowVideoRendererInSandbox[];
++#endif
++
+ }  // namespace options
+ 
+ // Following are actually command line switches, should be moved to other files.

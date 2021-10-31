@@ -1,0 +1,18 @@
+# https://domoreexp.visualstudio.com/Teamspace/_build?definitionId=4857
+#
+# Publish a project snapshot to an Azure storage.
+
+trigger: none
+
+parameters:
+- name: buildId
+  displayName: Project snapshot build ID
+  type: number
+
+stages:
+- stage: publish_project_snapshot_to_azure
+  displayName: Publish project snapshot
+  jobs:
+  - template: templates/job/publish_project_snapshot_to_azure.yml
+    parameters:
+      buildId: ${{ parameters.buildId }}

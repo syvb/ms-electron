@@ -1,0 +1,34 @@
+# Get flavour of a build.
+
+parameters:
+  buildId: ''
+  _artifactName: electron meta data
+  _platform: linux
+  _workingDirectory: $(Build.BinariesDirectory)
+
+jobs:
+- job: get_build_flavour
+  displayName: Get build flavour
+  timeoutInMinutes: 10
+  pool:
+    vmImage: ubuntu-18.04
+  steps:
+  - template: ../action/setup_agent.yml
+    parameters:
+      platform: ${{ parameters._platform }}
+
+  - template: ../action/checkout_self.yml
+
+  - task: DownloadPipelineArtifact@0
+    displayName: Download "${{ parameters._artifactName }}"
+    inputs:
+      pipelineId: ${{ parameters.buildId }}
+      artifactName: ${{ parameters._artifactName }}
+      targetPath: ${{ parameters._workingDirectory }}
+
+  - template: ../action/set_variable_from_file.yml
+    parameters:
+      filePath: '${{ parameters._workingDirectory }}/flavour.txt'
+      isOutput: true
+      name: Flavour
+      stepName: Electron

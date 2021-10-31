@@ -1,0 +1,41 @@
+# Download "external binaries" from a GitHub storage and put them into an internal storage.
+
+parameters:
+  _configPath: electron/script/external-binaries.json  # Relative to 'src/'.
+  _platform: windows
+  _stagingDirectory: $(Build.ArtifactStagingDirectory)
+  _workingDirectory: $(Build.BinariesDirectory)
+
+jobs:
+- job: mirror_external_binaries
+  displayName: Mirror external binaries
+  pool:
+    # This exact pool has to be used because its agents have
+    # 1. Python 2.7.14 available.
+    # 2. Dependencies for the Azure Upload task installed.
+    vmImage: vs2017-win2016
+  steps:
+  - template: ../action/setup_agent.yml
+    parameters:
+      platform: ${{ parameters._platform }}
+
+  - template: ../action/checkout_electron_without_chromium.yml
+    parameters:
+      platform: ${{ parameters._platform }}
+      workingDirectory: ${{ parameters._workingDirectory }}
+
+  - task: PythonScript@0
+    displayName: Download the binaries
+    inputs:
+      scriptSource: filePath
+      scriptPath: scripts/download_external_binaries.py
+      arguments: >
+        --config ${{ parameters._workingDirectory }}/src/${{ parameters._configPath}}
+        --save-to ${{ parameters._stagingDirectory }}
+      failOnStderr: true
+
+  - template: ../action/upload_to_azure.yml
+    parameters:
+      containerName: 'external-binaries'
+      sourcePath: ${{ parameters._stagingDirectory }}/*
+      storage: dropsskypeelectron

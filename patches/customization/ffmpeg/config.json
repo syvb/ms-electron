@@ -1,0 +1,3 @@
+{
+  "src/microsoft/patches/customization/ffmpeg": "src/third_party/ffmpeg"
+}

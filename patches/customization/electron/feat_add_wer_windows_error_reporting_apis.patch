@@ -1,0 +1,101 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Milan Burda <miburda@microsoft.com>
+Date: Thu, 16 Jul 2020 01:02:52 +0200
+Subject: feat: add WER (Windows Error Reporting) APIs
+
+Microsoft patch
+
+diff --git a/docs/api/process.md b/docs/api/process.md
+index a5292754fc641d8d7f0f118cd7b98358c845d1f1..2522ee7e157f12448e0685fe4f01ce716009aac3 100644
+--- a/docs/api/process.md
++++ b/docs/api/process.md
+@@ -323,3 +323,37 @@ Note that all statistics are reported in bytes.
+ ### `process.getLoadedModulesSize()` _Windows_
+ 
+ Returns `Number` - Total loaded size of all the modules.
++
++### `process.werInitialize([options])` _Windows_
++
++* `options` Object (optional)
++  * `gpuProcess` Boolean (optional) - Default `false`.
++  * `rendererProcess` Boolean (optional) - Default `true`.
++  * `utilityProcess` Boolean (optional) - Default `true`.
++
++Returns `Boolean` - Whether the call succeeded.
++
++### `process.werRegisterFile(filePath)` _Windows_
++
++* `filePath` String
++
++Returns `Boolean` - Whether the call succeeded.
++
++### `process.werUnregisterFile(filePath)` _Windows_
++
++* `filePath` String
++
++Returns `Boolean` - Whether the call succeeded.
++
++### `process.werRegisterCustomMetadata(key, value)` _Windows_
++
++* `key` String
++* `value` String
++
++Returns `Boolean` - Whether the call succeeded.
++
++### `process.werUnregisterCustomMetadata(key)` _Windows_
++
++* `key` String
++
++Returns `Boolean` - Whether the call succeeded.
+diff --git a/shell/app/electron_main_delegate.cc b/shell/app/electron_main_delegate.cc
+index 8bd9ef9e18c02f84543d04a860cb20c5e077451d..82bdb28dedb7d02bb1bce9c6b7f2ad85ecc52f32 100644
+--- a/shell/app/electron_main_delegate.cc
++++ b/shell/app/electron_main_delegate.cc
+@@ -66,6 +66,10 @@
+ #include "microsoft/src/electron/shell/common/startup_metrics.h"
+ #endif
+ 
++#if BUILDFLAG(MICROSOFT_ENABLE_WER_API) && defined(OS_WIN)
++#include "microsoft/src/electron/shell/common/wer_api_win.h"
++#endif
++
+ namespace electron {
+ 
+ namespace {
+@@ -302,6 +306,10 @@ void ElectronMainDelegate::PreSandboxStartup() {
+     LoadResourceBundle(locale);
+   }
+ 
++#if BUILDFLAG(MICROSOFT_ENABLE_WER_API) && defined(OS_WIN)
++  microsoft::WerInitializeFromCommandLine();
++#endif
++
+ #if defined(OS_WIN) || (defined(OS_MACOSX) && !defined(MAS_BUILD))
+   // In the main process, we wait for JS to call crashReporter.start() before
+   // initializing crashpad. If we're in the renderer, we want to initialize it
+diff --git a/shell/browser/electron_browser_client.cc b/shell/browser/electron_browser_client.cc
+index 643258ec09e94673e08940f019c74ff87a9edbd7..b29bb7d7dbc3ed39e93f60b20646f9eba0c25145 100644
+--- a/shell/browser/electron_browser_client.cc
++++ b/shell/browser/electron_browser_client.cc
+@@ -172,6 +172,10 @@
+ #include "microsoft/src/electron/shell/common/api/watchdog.h"
+ #endif
+ 
++#if BUILDFLAG(MICROSOFT_ENABLE_WER_API) && defined(OS_WIN)
++#include "microsoft/src/electron/shell/common/wer_api_win.h"
++#endif
++
+ #if defined(OS_MACOSX)
+ #include "content/common/mac_helpers.h"
+ #include "content/public/common/child_process_host.h"
+@@ -730,6 +734,10 @@ void ElectronBrowserClient::AppendExtraCommandLineSwitches(
+ #endif
+   }
+ 
++#if BUILDFLAG(MICROSOFT_ENABLE_WER_API) && defined(OS_WIN)
++  microsoft::AppendExtraCommandLineSwitches(command_line);
++#endif
++
+   std::string process_type =
+       command_line->GetSwitchValueASCII(::switches::kProcessType);
+ 

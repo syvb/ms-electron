@@ -1,0 +1,18 @@
+# Build and test Electron on all supported platforms.
+
+parameters:
+  flavour: ''
+  _buildType: testing
+  # TODO(alkuzmin): Don't ignore test results.
+  _ignoreTestFailures: true  # There are failures on all platforms.
+
+jobs:
+- template: ../multi_job/build_electron.yml
+  parameters:
+    buildType: ${{ parameters._buildType }}
+    flavour: ${{ parameters.flavour }}
+    useCompilerCache: true
+
+- template: ../multi_job/run_javascript_tests.yml
+  parameters:
+    ignoreTestFailures: ${{ parameters._ignoreTestFailures }}

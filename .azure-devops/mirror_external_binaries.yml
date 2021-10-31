@@ -1,0 +1,6 @@
+# https://domoreexp.visualstudio.com/Teamspace/_build/?definitionId=2715
+
+trigger: none
+
+jobs:
+- template: templates/job/mirror_external_binaries.yml

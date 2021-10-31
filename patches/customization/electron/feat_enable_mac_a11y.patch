@@ -1,0 +1,43 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Aleksei Kuzmin <alkuzmin@microsoft.com>
+Date: Wed, 14 Nov 2018 13:01:12 +0100
+Subject: feat: enable Mac a11y
+
+Microsoft patch
+
+diff --git a/shell/browser/ui/file_dialog_mac.mm b/shell/browser/ui/file_dialog_mac.mm
+index d490e1656a02f48b359ed7a8569ab623c901795c..7f0fcab7a8244ad084b9b3cef59ba8204e14d758 100644
+--- a/shell/browser/ui/file_dialog_mac.mm
++++ b/shell/browser/ui/file_dialog_mac.mm
+@@ -16,6 +16,7 @@
+ #include "base/mac/mac_util.h"
+ #include "base/mac/scoped_cftyperef.h"
+ #include "base/strings/sys_string_conversions.h"
++#include "microsoft/buildflags/buildflags.h"
+ #include "shell/browser/native_window.h"
+ #include "shell/common/gin_converters/file_path_converter.h"
+ 
+@@ -353,12 +354,15 @@ void ShowOpenDialog(const DialogSettings& settings,
+ 
+   __block gin_helper::Promise<gin_helper::Dictionary> p = std::move(promise);
+ 
++#if !BUILDFLAG(MICROSOFT_ENABLE_MAC_A11Y)
+   if (!settings.parent_window || !settings.parent_window->GetNativeWindow() ||
+       settings.force_detached) {
++#endif
+     [dialog beginWithCompletionHandler:^(NSInteger chosen) {
+       OpenDialogCompletion(chosen, dialog, security_scoped_bookmarks,
+                            std::move(p));
+     }];
++#if !BUILDFLAG(MICROSOFT_ENABLE_MAC_A11Y)
+   } else {
+     NSWindow* window =
+         settings.parent_window->GetNativeWindow().GetNativeNSWindow();
+@@ -369,6 +373,7 @@ void ShowOpenDialog(const DialogSettings& settings,
+                                       std::move(p));
+                }];
+   }
++#endif
+ }
+ 
+ bool ShowSaveDialogSync(const DialogSettings& settings, base::FilePath* path) {

@@ -1,0 +1,23 @@
+# https://domoreexp.visualstudio.com/Teamspace/_build?definitionId=3163
+#
+# Build snapshots of the whole project so it can be re-built by an external user.
+# Compare binaries produces by builds from snapshots to regular releases.
+
+trigger: none
+
+schedules:
+- cron: '0 3 * * SUN'  # At 3am every Sunday.
+  displayName: Sunday joy
+  branches:
+    include:
+    - release/*
+  always: true
+
+resources:
+  pipelines:
+  - pipeline: release
+    source: Electron meta-release
+    trigger: {}
+
+jobs:
+- template: templates/build/build_project_snapshot.yml

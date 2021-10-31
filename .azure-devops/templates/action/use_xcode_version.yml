@@ -1,0 +1,7 @@
+parameters:
+  _version: 11.3.1
+
+steps:
+- bash: sudo xcode-select -s /Applications/Xcode_${{ parameters._version }}.app/Contents/Developer
+  displayName: Use Xcode ${{ parameters._version }}
+  failOnStderr: true

@@ -1,0 +1,17 @@
+# https://domoreexp.visualstudio.com/Teamspace/_build?definitionId=2729
+#
+# Build FFmpeg.
+
+trigger: none
+
+parameters:
+- name: flavour
+  displayName: Build flavour
+  type: string
+  values: ['electron', 'media', 'teams', 'vscode']
+  default: teams
+
+jobs:
+- template: templates/multi_job/build_ffmpeg.yml
+  parameters:
+    flavour: ${{ parameters.flavour }}

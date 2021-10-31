@@ -1,0 +1,23 @@
+parameters:
+- name: name  # An arbitrary name satisfying the Azure requirements.
+  type: string
+- name: platform
+  type: string
+  values: ['linux', 'windows']
+
+jobs:
+- job: create_virtual_machine
+  displayName: create virtual machine
+  pool:
+    # Azure CLI is a hard dependency for this job.
+    vmImage: ubuntu-18.04
+  variables:
+  # It's needed to get an admin username and password.
+  - group: Electron
+  steps:
+  - template: ../action/checkout_self.yml
+
+  - template: ../action/create_virtual_machine.yml
+    parameters:
+      name: ${{ parameters.name }}
+      platform: ${{ parameters.platform }}

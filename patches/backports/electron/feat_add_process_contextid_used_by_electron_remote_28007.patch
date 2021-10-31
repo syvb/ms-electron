@@ -1,0 +1,102 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Milan Burda <miburda@microsoft.com>
+Date: Fri, 5 Mar 2021 17:31:48 +0100
+Subject: feat: add process.contextId used by @electron/remote (#28007)
+
+Backport: https://github.com/electron/electron/pull/28007
+
+diff --git a/docs/api/process.md b/docs/api/process.md
+index db1549691644e0a4bec19ecfd020ba9e68fe9ca6..728773c6f83cfeaa4e0da07a38c8548de8923ef0 100644
+--- a/docs/api/process.md
++++ b/docs/api/process.md
+@@ -33,6 +33,7 @@ In sandboxed renderers the `process` object contains only a subset of the APIs:
+ - `versions`
+ - `mas`
+ - `windowsStore`
++- `contextId`
+ 
+ ## Events
+ 
+@@ -130,6 +131,11 @@ A `String` representing Electron's version string.
+ A `Boolean`. If the app is running as a Windows Store app (appx), this property is `true`,
+ for otherwise it is `undefined`.
+ 
++### `process.contextId` _Readonly_
++
++A `String` (optional) representing a globally unique ID of the current JavaScript context.
++This property is only available in the renderer process.
++
+ ## Methods
+ 
+ The `process` object has the following methods:
+diff --git a/lib/renderer/init.ts b/lib/renderer/init.ts
+index bcae9d61c853e01d1756fa33a6be08e88c25d4fd..d2b232da613f5f0a49778803d5332be5fa3ba8e6 100644
+--- a/lib/renderer/init.ts
++++ b/lib/renderer/init.ts
+@@ -39,6 +39,10 @@ require('@electron/internal/common/init');
+ // The global variable will be used by ipc for event dispatching
+ const v8Util = process.electronBinding('v8_util');
+ 
++// Expose process.contextId
++const contextId = v8Util.getHiddenValue<string>(global, 'contextId');
++Object.defineProperty(process, 'contextId', { enumerable: true, value: contextId });
++
+ const ipcEmitter = new EventEmitter();
+ const ipcInternalEmitter = new EventEmitter();
+ v8Util.setHiddenValue(global, 'ipc', ipcEmitter);
+diff --git a/lib/sandboxed_renderer/init.js b/lib/sandboxed_renderer/init.js
+index 6ae893800dcb605a299f0036a06cf3b9be2139b6..f6390793e92bebb9a7457398e261e861be797bb9 100644
+--- a/lib/sandboxed_renderer/init.js
++++ b/lib/sandboxed_renderer/init.js
+@@ -99,6 +99,10 @@ Object.defineProperty(preloadProcess, 'noDeprecation', {
+   }
+ });
+ 
++// Expose process.contextId
++const contextId = v8Util.getHiddenValue(global, 'contextId');
++Object.defineProperty(preloadProcess, 'contextId', { enumerable: true, value: contextId });
++
+ process.on('loaded', () => preloadProcess.emit('loaded'));
+ process.on('exit', () => preloadProcess.emit('exit'));
+ process.on('document-start', () => preloadProcess.emit('document-start'));
+diff --git a/spec-main/api-browser-window-spec.ts b/spec-main/api-browser-window-spec.ts
+index 62d272c9f56cc0153455d9f4caaaf85843d1c8a7..fa898ce6695899fc745e94d446ecfd82159ebe1d 100644
+--- a/spec-main/api-browser-window-spec.ts
++++ b/spec-main/api-browser-window-spec.ts
+@@ -2498,6 +2498,7 @@ describe('BrowserWindow module', () => {
+         expect(test.type).to.equal('renderer');
+         expect(test.version).to.equal(process.version);
+         expect(test.versions).to.deep.equal(process.versions);
++        expect(test.contextId).to.be.a('string');
+ 
+         if (process.platform === 'linux' && test.osSandbox) {
+           expect(test.creationTime).to.be.null('creation time');
+diff --git a/spec-main/fixtures/module/preload-sandbox.js b/spec-main/fixtures/module/preload-sandbox.js
+index 524771046a0eb7c4ae01231f0da9e78cd0262860..3a44fba74e1caa2d4ddf3c1b85940aa710cc2b6d 100644
+--- a/spec-main/fixtures/module/preload-sandbox.js
++++ b/spec-main/fixtures/module/preload-sandbox.js
+@@ -41,7 +41,8 @@
+         sandboxed: process.sandboxed,
+         type: process.type,
+         version: process.version,
+-        versions: process.versions
++        versions: process.versions,
++        contextId: process.contextId
+       };
+     }
+   } else if (location.href !== 'about:blank') {
+diff --git a/spec/api-process-spec.js b/spec/api-process-spec.js
+index 6eada5c945feb83a1d79a2c4102877dbbd886358..802910741322783e72d1e105263189e3e04ba5a7 100644
+--- a/spec/api-process-spec.js
++++ b/spec/api-process-spec.js
+@@ -115,4 +115,10 @@ describe('process module', () => {
+       expect(success).to.be.false();
+     });
+   });
++
++  describe('process.contextId', () => {
++    it('is a string', () => {
++      expect(process.contextId).to.be.a('string');
++    });
++  });
+ });

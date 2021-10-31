@@ -1,0 +1,11 @@
+# https://domoreexp.visualstudio.com/Teamspace/_build?definitionId=3115
+#
+# A pull request validation build.
+# Builds Electron with the "media" flavour and runs JavaScript tests.
+
+trigger: none
+
+jobs:
+- template: templates/build/build_and_test_electron.yml
+  parameters:
+    flavour: media

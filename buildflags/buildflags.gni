@@ -1,0 +1,25 @@
+# Default state must preserve Chromium or Electron behaviour.
+
+declare_args() {
+  microsoft_add_build_version_to_process_versions = false
+
+  # It's a build id. Set it on CI for release builds.
+  microsoft_build_version = "0"
+  microsoft_chromium_video_renderer = false
+  microsoft_cors_skip_preflight = false
+  microsoft_enable_app_center = false
+  microsoft_enable_code_location_in_v8_heap_snapshot = true
+  microsoft_enable_cpu_profiler = false
+  microsoft_enable_crashreporter_api = false
+  microsoft_enable_exclude_from_screen_sharing = false
+  microsoft_enable_iso_keyboard_key_mapping = true
+  microsoft_enable_mac_a11y = false
+  microsoft_enable_memory_usage_api = false
+  microsoft_enable_move_behind_taskbar = true
+  microsoft_enable_remote_host = false
+  microsoft_enable_startup_metrics = false
+  microsoft_enable_tenant_restrictions = false
+  microsoft_enable_watchdog = false
+  microsoft_enable_wer_api = false
+  microsoft_fix_screen_reader_detection = false
+}

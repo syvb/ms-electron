@@ -1,0 +1,105 @@
+# Runs various security tools, see http://aka.ms/teamssdl.
+# Requires access to the "SkypeSpaces-Infra" repository.
+
+parameters:
+- name: arch
+  type: string
+  values: ['arm', 'arm64', 'x64', 'x86']
+- name: buildId
+  type: number
+  default: 0  # The current build if set to 0.
+- name: condition
+  type: string
+  default: ''
+- name: dependsOn
+  type: object
+  default: ''
+- name: platform
+  type: string
+  values: ['mac', 'mas', 'windows']  # (alkuzmin) What about linux?
+- name: _serviceTreeId
+  type: string
+  # Electron at Microsoft
+  # https://servicetree.msftcloudes.com/main.html#/ServiceModel/Home/969b2fe3-9eb5-4ca2-b746-eeefe1463e88
+  default: 969b2fe3-9eb5-4ca2-b746-eeefe1463e88
+- name: _workingDirectory
+  type: string
+  default: $(Build.BinariesDirectory)
+
+jobs:
+- job: run_security_tools_${{ parameters.platform }}_${{ parameters.arch }}
+  displayName: Run security tools for ${{ parameters.platform }} ${{ parameters.arch }}
+  ${{ if ne(parameters.condition, '') }}:
+    condition: ${{ parameters.condition }}
+  ${{ if ne(parameters.dependsOn, '') }}:
+    dependsOn: ${{ parameters.dependsOn }}
+  ${{ if and(eq(parameters.dependsOn, ''), eq(parameters.buildId, 0)) }}:
+    dependsOn: build_electron_${{ parameters.platform }}_${{ parameters.arch }}
+  pool:
+    ${{ if in(parameters.platform, 'mac', 'mas') }}:
+      vmImage: macOS-10.14
+    ${{ if eq(parameters.platform, 'windows') }}:
+      vmImage: vs2017-win2016
+  variables:
+  - group: InfoSec-SecurityResults
+  - group: ServiceTreeLinkGroup
+  - name: ProductComponentName
+    ${{ if in(parameters.platform, 'mac', 'mas') }}:
+      value: Microsoft Teams - Electron Mac
+    ${{ if eq(parameters.platform, 'windows') }}:
+      value: Microsoft Teams - Electron Windows
+  - name: productPlatform
+    ${{ if in(parameters.platform, 'mac', 'mas') }}:
+      value: OS X
+    ${{ if eq(parameters.platform, 'windows') }}:
+      value: Windows
+  - name: runBlocked
+    value: true
+  steps:
+  - template: ../action/setup_agent.yml
+    parameters:
+      platform: ${{ parameters.platform }}
+
+  - template: ../action/checkout_self.yml
+
+  - task: DownloadPipelineArtifact@0
+    displayName: Download electron ${{ parameters.platform }} ${{ parameters.arch }}
+    inputs:
+      artifactName: 'electron ${{ parameters.platform }} ${{ parameters.arch }}'
+      ${{ if ne(parameters.buildId, 0) }}:
+        pipelineId: ${{ parameters.buildId }}
+      targetPath: ${{ parameters._workingDirectory }}/downloads
+
+  - task: ExtractFiles@1
+    displayName: Extract dist.zip contents
+    inputs:
+      archiveFilePatterns: ${{ parameters._workingDirectory }}/downloads/dist.zip
+      destinationFolder: ${{ parameters._workingDirectory }}/electron
+      cleanDestinationFolder: true
+
+  - template: azure-devops-templates/steps/ServiceTree-Integration.yml@SkypeSpaces-Infra
+    parameters:
+      ServiceTreeID: ${{ parameters._serviceTreeId }}
+
+  - ${{ if in(parameters.platform, 'mac', 'mas') }}:
+    # Some parameters are defined as job variables.
+    - template: azure-devops-templates/steps/BinScope-for-Mac.yml@SkypeSpaces-Infra
+      parameters:
+        binaryPath: ${{ parameters._workingDirectory }}/electron/Electron.app
+
+  - ${{ if eq(parameters.platform, 'windows') }}:
+    # Some tasks that could be cross-platform, now only work on Windows.
+
+    - template: azure-devops-templates/steps/CredScan.yml@SkypeSpaces-Infra
+
+    - template: azure-devops-templates/steps/TSLint.yml@SkypeSpaces-Infra
+      parameters:
+        TSLintRuleset: skypesdlrequired
+
+    # TODO(alkuzmin): Run BinSkim. See #673180.
+    # - template: ../action/run_binskim.yml
+    #   parameters:
+    #     electronDirectory: ${{ parameters._workingDirectory }}\electron
+    #     pdbZipPath: ${{ parameters._workingDirectory }}/downloads/pdb.zip
+
+    - template: azure-devops-templates/steps/Publish-Security-Analysis-Logs.yml@SkypeSpaces-Infra

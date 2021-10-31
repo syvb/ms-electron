@@ -1,0 +1,122 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Milan Burda <miburda@microsoft.com>
+Date: Fri, 23 Apr 2021 01:53:51 +0200
+Subject: feat: port Tenant Restrictions v2 from Edge
+
+Microsoft patch
+
+diff --git a/shell/browser/electron_browser_main_parts.cc b/shell/browser/electron_browser_main_parts.cc
+index 3d1f55988879780b1c6435c0b903d8a4e11b38d8..bfd7eef52f387236bcc771220a029bf121175e6e 100644
+--- a/shell/browser/electron_browser_main_parts.cc
++++ b/shell/browser/electron_browser_main_parts.cc
+@@ -48,6 +48,7 @@
+ #include "shell/common/gin_helper/trackable_object.h"
+ #include "shell/common/node_bindings.h"
+ #include "shell/common/node_includes.h"
++#include "shell/common/options_switches.h"
+ #include "ui/base/idle/idle.h"
+ #include "ui/base/l10n/l10n_util.h"
+ #include "ui/base/ui_base_switches.h"
+@@ -108,6 +109,10 @@
+ #include "chrome/browser/spellchecker/spellcheck_factory.h"  // nogncheck
+ #endif
+ 
++#if BUILDFLAG(MICROSOFT_ENABLE_TENANT_RESTRICTIONS) && defined(OS_WIN)
++#include "microsoft/src/components/edge_tenant/browser/trv2_update_manager.h"
++#endif
++
+ namespace electron {
+ 
+ namespace {
+@@ -509,14 +514,24 @@ void ElectronBrowserMainParts::PreMainMessageLoopRun() {
+       ElectronWebUIControllerFactory::GetInstance());
+ 
+   auto* command_line = base::CommandLine::ForCurrentProcess();
+-  if (command_line->HasSwitch(switches::kRemoteDebuggingPipe)) {
++  if (command_line->HasSwitch(::switches::kRemoteDebuggingPipe)) {
+     // --remote-debugging-pipe
+     content::DevToolsAgentHost::StartRemoteDebuggingPipeHandler();
+-  } else if (command_line->HasSwitch(switches::kRemoteDebuggingPort)) {
++  } else if (command_line->HasSwitch(::switches::kRemoteDebuggingPort)) {
+     // --remote-debugging-port
+     DevToolsManagerDelegate::StartHttpHandler();
+   }
+ 
++#if BUILDFLAG(MICROSOFT_ENABLE_TENANT_RESTRICTIONS) && defined(OS_WIN)
++  if (command_line->HasSwitch(switches::kMSTenantRestrictionsV2)) {
++    trv2_manager_ =
++        edge::tenant_restrictions::trv2::UpdateManager::CreateUpdateManager();
++    if (trv2_manager_) {
++      trv2_manager_->UpdateIfNeeded();
++    }
++  }
++#endif
++
+ #if !defined(OS_MACOSX)
+   // The corresponding call in macOS is in ElectronApplicationDelegate.
+   Browser::Get()->WillFinishLaunching();
+diff --git a/shell/browser/electron_browser_main_parts.h b/shell/browser/electron_browser_main_parts.h
+index 52e3677da8be3aa688a4ac2353498948d97008a0..52207c2dad71d4569656f5d04ecede705b137f88 100644
+--- a/shell/browser/electron_browser_main_parts.h
++++ b/shell/browser/electron_browser_main_parts.h
+@@ -16,6 +16,7 @@
+ #include "content/public/browser/browser_main_parts.h"
+ #include "content/public/common/main_function_params.h"
+ #include "electron/buildflags/buildflags.h"
++#include "microsoft/buildflags/buildflags.h"
+ #include "mojo/public/cpp/bindings/remote.h"
+ #include "services/device/public/mojom/geolocation_control.mojom.h"
+ #include "ui/views/layout/layout_provider.h"
+@@ -23,6 +24,16 @@
+ class BrowserProcess;
+ class IconManager;
+ 
++#if BUILDFLAG(MICROSOFT_ENABLE_TENANT_RESTRICTIONS) && defined(OS_WIN)
++namespace edge {
++namespace tenant_restrictions {
++namespace trv2 {
++class UpdateManager;
++}  // namespace trv2
++}  // namespace tenant_restrictions
++}  // namespace edge
++#endif
++
+ #if defined(USE_AURA)
+ namespace wm {
+ class WMState;
+@@ -160,6 +171,11 @@ class ElectronBrowserMainParts : public content::BrowserMainParts {
+   std::unique_ptr<ElectronExtensionsBrowserClient> extensions_browser_client_;
+ #endif
+ 
++#if BUILDFLAG(MICROSOFT_ENABLE_TENANT_RESTRICTIONS) && defined(OS_WIN)
++  // trv2 is windows only at the moment. Don't add it on other platforms
++  std::unique_ptr<edge::tenant_restrictions::trv2::UpdateManager> trv2_manager_;
++#endif
++
+   // List of callbacks should be executed before destroying JS env.
+   std::list<base::OnceClosure> destructors_;
+ 
+diff --git a/shell/common/options_switches.cc b/shell/common/options_switches.cc
+index 8566cacfa61579190b00ea2f8d11cb2e4f300e74..2752f19cc9a42d44ebb56f435dd8b949fb3e4def 100644
+--- a/shell/common/options_switches.cc
++++ b/shell/common/options_switches.cc
+@@ -296,6 +296,7 @@ const char kEnableAuthNegotiatePort[] = "enable-auth-negotiate-port";
+ const char kDisableNTLMv2[] = "disable-ntlm-v2";
+ 
+ const char kMSBumpSystemNetworkCtxTLS12[] = "ms-bump-system-network-ctx-tls12";
++const char kMSTenantRestrictionsV2[] = "ms-tenant-restrictions-v2";
+ 
+ #if BUILDFLAG(ENABLE_BUILTIN_SPELLCHECKER)
+ const char kEnableSpellcheck[] = "enable-spellcheck";
+diff --git a/shell/common/options_switches.h b/shell/common/options_switches.h
+index b9b88c466801bcfd9b184a96f4a127b502ae6c96..e9aa2fe3c66c35e93c1f078d436b265dd44dda0f 100644
+--- a/shell/common/options_switches.h
++++ b/shell/common/options_switches.h
+@@ -152,6 +152,7 @@ extern const char kEnableAuthNegotiatePort[];
+ extern const char kDisableNTLMv2[];
+ 
+ extern const char kMSBumpSystemNetworkCtxTLS12[];
++extern const char kMSTenantRestrictionsV2[];
+ 
+ #if BUILDFLAG(ENABLE_BUILTIN_SPELLCHECKER)
+ extern const char kEnableSpellcheck[];

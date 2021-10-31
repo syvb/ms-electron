@@ -1,0 +1,57 @@
+# https://domoreexp.visualstudio.com/Teamspace/_build?definitionId=2599
+#
+# Checkout a Chromium project tree with all its dependencies
+# and save it into an internal storage.
+
+trigger: none
+
+parameters:
+- name: linux
+  displayName: Linux
+  type: boolean
+  default: true
+- name: mac
+  displayName: macOS
+  type: boolean
+  default: true
+- name: windows
+  displayName: Windows
+  type: boolean
+  default: true
+- name: publish
+  displayName: Publish snapshots as pipeline artifacts
+  type: boolean
+  default: false
+- name: save
+  displayName: Save snapshots to the repo
+  type: boolean
+  default: true
+- name: replace
+  displayName: Replace existing snapshots in the repo (irreversible)
+  type: boolean
+  default: false
+
+jobs:
+- ${{ if eq(parameters.linux, true) }}:
+  - template: templates/job/build_chromium_snapshot.yml
+    parameters:
+      platform: linux
+      publish: ${{ parameters.publish }}
+      replace: ${{ parameters.replace }}
+      save: ${{ parameters.save }}
+
+- ${{ if eq(parameters.mac, true) }}:
+  - template: templates/job/build_chromium_snapshot.yml
+    parameters:
+      platform: mac
+      publish: ${{ parameters.publish }}
+      replace: ${{ parameters.replace }}
+      save: ${{ parameters.save }}
+
+- ${{ if eq(parameters.windows, true) }}:
+  - template: templates/job/build_chromium_snapshot.yml
+    parameters:
+      platform: windows
+      publish: ${{ parameters.publish }}
+      replace: ${{ parameters.replace }}
+      save: ${{ parameters.save }}

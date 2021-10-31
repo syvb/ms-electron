@@ -1,0 +1,15 @@
+import("//third_party/blink/renderer/core/core.gni")
+
+blink_core_sources("events") {
+  sources = [
+    "events/log_event.cc",
+    "events/log_event.h",
+  ]
+}
+
+blink_core_sources("html") {
+  sources = [
+    "html/html_skype_video_element.cc",
+    "html/html_skype_video_element.h",
+  ]
+}

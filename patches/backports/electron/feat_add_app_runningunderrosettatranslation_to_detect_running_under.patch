@@ -1,0 +1,79 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Samuel Attard <sam@electronjs.org>
+Date: Fri, 13 Nov 2020 12:53:32 -0800
+Subject: feat: add app.runningUnderRosettaTranslation to detect running under
+ rosetta (#26444)
+
+Backport: https://github.com/electron/electron/pull/26444
+
+diff --git a/docs/api/app.md b/docs/api/app.md
+index a7d59d710795c8a627ca732d97441649fe66e953..90bf339a21aa49f0ace2c95856541bb4275cdf79 100644
+--- a/docs/api/app.md
++++ b/docs/api/app.md
+@@ -1448,3 +1448,12 @@ which native modules you can use in the renderer process.  For more information
+ on the direction Electron is going with renderer process restarts and usage of
+ native modules in the renderer process please check out this
+ [Tracking Issue](https://github.com/electron/electron/issues/18397).
++
++### `app.runningUnderRosettaTranslation` _macOS_ _Readonly_
++
++A `Boolean` which when `true` indicates that the app is currently running
++under the [Rosetta Translator Environment](https://en.wikipedia.org/wiki/Rosetta_(software)).
++
++You can use this property to prompt users to download the arm64 version of
++your application when they are running the x64 version under Rosetta
++incorrectly.
+diff --git a/shell/browser/api/electron_api_app.cc b/shell/browser/api/electron_api_app.cc
+index ed091f12af710bb9f9e514583708855d9679838f..7f0ff8f3c54ad6066aa009bd6eed21131bbc071b 100644
+--- a/shell/browser/api/electron_api_app.cc
++++ b/shell/browser/api/electron_api_app.cc
+@@ -1609,6 +1609,8 @@ void App::BuildPrototype(v8::Isolate* isolate,
+ #endif
+ #if defined(OS_MACOSX)
+       .SetProperty("dock", &App::GetDockAPI)
++      .SetProperty("runningUnderRosettaTranslation",
++                   &App::IsRunningUnderRosettaTranslation)
+ #endif
+       .SetProperty("userAgentFallback", &App::GetUserAgentFallback,
+                    &App::SetUserAgentFallback)
+diff --git a/shell/browser/api/electron_api_app.h b/shell/browser/api/electron_api_app.h
+index e7655ef11db510aadc35df8db5a8a3c258964792..4be40aea6d86b743c06b169d941f4f0970d6a6d2 100644
+--- a/shell/browser/api/electron_api_app.h
++++ b/shell/browser/api/electron_api_app.h
+@@ -216,6 +216,7 @@ class App : public ElectronBrowserClient::Delegate,
+   bool MoveToApplicationsFolder(gin_helper::ErrorThrower, gin::Arguments* args);
+   bool IsInApplicationsFolder();
+   v8::Local<v8::Value> GetDockAPI(v8::Isolate* isolate);
++  bool IsRunningUnderRosettaTranslation() const;
+   v8::Global<v8::Value> dock_;
+ #endif
+ 
+diff --git a/shell/browser/api/electron_api_app_mac.mm b/shell/browser/api/electron_api_app_mac.mm
+index c317e9d40a298f807108c4eb5a03a73ef6388d2c..8a4458f9aed2bdd22549c2a677ddfb25334d69b3 100644
+--- a/shell/browser/api/electron_api_app_mac.mm
++++ b/shell/browser/api/electron_api_app_mac.mm
+@@ -9,6 +9,7 @@
+ #include "shell/common/electron_paths.h"
+ 
+ #import <Cocoa/Cocoa.h>
++#import <sys/sysctl.h>
+ 
+ namespace electron {
+ 
+@@ -58,6 +59,16 @@ void App::SetActivationPolicy(gin_helper::ErrorThrower thrower,
+   [NSApp setActivationPolicy:activation_policy];
+ }
+ 
++bool App::IsRunningUnderRosettaTranslation() const {
++  int proc_translated = 0;
++  size_t size = sizeof(proc_translated);
++  if (sysctlbyname("sysctl.proc_translated", &proc_translated, &size, NULL,
++                   0) == -1) {
++    return false;
++  }
++  return proc_translated == 1;
++}
++
+ }  // namespace api
+ 
+ }  // namespace electron

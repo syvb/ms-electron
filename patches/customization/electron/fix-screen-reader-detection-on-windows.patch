@@ -1,0 +1,73 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Milan Burda <miburda@microsoft.com>
+Date: Wed, 7 Nov 2018 21:21:10 +0100
+Subject: fix: screen reader detection on Windows
+
+Microsoft patch
+
+diff --git a/shell/browser/native_window_views_win.cc b/shell/browser/native_window_views_win.cc
+index 8b337220ddbd4c05b8e7017e0b16e1b35b4b41d8..b93a6433fbca796ccc56f342cc81ca140c7283b1 100644
+--- a/shell/browser/native_window_views_win.cc
++++ b/shell/browser/native_window_views_win.cc
+@@ -5,7 +5,9 @@
+ #include <dwmapi.h>
+ #include <shellapi.h>
+ 
++#include "base/win/scoped_handle.h"
+ #include "content/public/browser/browser_accessibility_state.h"
++#include "microsoft/buildflags/buildflags.h"
+ #include "shell/browser/browser.h"
+ #include "shell/browser/native_window_views.h"
+ #include "shell/browser/ui/views/root_view.h"
+@@ -137,12 +139,51 @@ const char* AppCommandToString(int command_id) {
+   }
+ }
+ 
++#if BUILDFLAG(MICROSOFT_FIX_SCREEN_READER_DETECTION)
++
++bool IsMutexPresent(const wchar_t* name) {
++  base::win::ScopedHandle hMutex(::CreateMutex(nullptr, false, name));
++  return ::GetLastError() == ERROR_ALREADY_EXISTS;
++}
++
++bool IsLibraryLoaded(const wchar_t* name) {
++  HMODULE hModule = nullptr;
++  ::GetModuleHandleEx(GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, name,
++                      &hModule);
++  return hModule != nullptr;
++}
++
++bool IsScreenReaderActive() {
++  if (IsMutexPresent(L"NarratorRunning"))
++    return true;
++
++  static const wchar_t* names[] = {// NVDA
++                                   L"nvdaHelperRemote.dll",
++                                   // JAWS
++                                   L"jhook.dll",
++                                   // Window-Eyes
++                                   L"gwhk64.dll", L"gwmhook.dll",
++                                   // ZoomText
++                                   L"AiSquared.Infuser.HookLib.dll"};
++
++  for (auto* name : names) {
++    if (IsLibraryLoaded(name))
++      return true;
++  }
++
++  return false;
++}
++
++#else
++
+ bool IsScreenReaderActive() {
+   UINT screenReader = 0;
+   SystemParametersInfo(SPI_GETSCREENREADER, 0, &screenReader, 0);
+   return screenReader && UiaClientsAreListening();
+ }
+ 
++#endif
++
+ }  // namespace
+ 
+ std::set<NativeWindowViews*> NativeWindowViews::forwarding_windows_;

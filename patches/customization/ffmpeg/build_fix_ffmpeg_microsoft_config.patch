@@ -1,0 +1,115 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Aleksei Kuzmin <alkuzmin@microsoft.com>
+Date: Wed, 27 Feb 2019 14:47:45 +0100
+Subject: build: fix FFmpeg Microsoft config
+
+Microsoft patch
+
+diff --git a/chromium/config/Microsoft/linux/arm-neon/libavcodec/codec_list.c b/chromium/config/Microsoft/linux/arm-neon/libavcodec/codec_list.c
+index 49f757b2d864eaf552ea0a64f11ca70b3bfaa094..577808371895a08c824b4e091cd53799a5c41008 100644
+--- a/chromium/config/Microsoft/linux/arm-neon/libavcodec/codec_list.c
++++ b/chromium/config/Microsoft/linux/arm-neon/libavcodec/codec_list.c
+@@ -2,7 +2,6 @@ static const AVCodec * const codec_list[] = {
+     &ff_h264_decoder,
+     &ff_theora_decoder,
+     &ff_vp3_decoder,
+-    &ff_vp8_decoder,
+     &ff_aac_decoder,
+     &ff_flac_decoder,
+     &ff_mp3_decoder,
+diff --git a/chromium/config/Microsoft/linux/arm/libavcodec/codec_list.c b/chromium/config/Microsoft/linux/arm/libavcodec/codec_list.c
+index 49f757b2d864eaf552ea0a64f11ca70b3bfaa094..577808371895a08c824b4e091cd53799a5c41008 100644
+--- a/chromium/config/Microsoft/linux/arm/libavcodec/codec_list.c
++++ b/chromium/config/Microsoft/linux/arm/libavcodec/codec_list.c
+@@ -2,7 +2,6 @@ static const AVCodec * const codec_list[] = {
+     &ff_h264_decoder,
+     &ff_theora_decoder,
+     &ff_vp3_decoder,
+-    &ff_vp8_decoder,
+     &ff_aac_decoder,
+     &ff_flac_decoder,
+     &ff_mp3_decoder,
+diff --git a/chromium/config/Microsoft/linux/arm64/libavcodec/codec_list.c b/chromium/config/Microsoft/linux/arm64/libavcodec/codec_list.c
+index 49f757b2d864eaf552ea0a64f11ca70b3bfaa094..577808371895a08c824b4e091cd53799a5c41008 100644
+--- a/chromium/config/Microsoft/linux/arm64/libavcodec/codec_list.c
++++ b/chromium/config/Microsoft/linux/arm64/libavcodec/codec_list.c
+@@ -2,7 +2,6 @@ static const AVCodec * const codec_list[] = {
+     &ff_h264_decoder,
+     &ff_theora_decoder,
+     &ff_vp3_decoder,
+-    &ff_vp8_decoder,
+     &ff_aac_decoder,
+     &ff_flac_decoder,
+     &ff_mp3_decoder,
+diff --git a/chromium/config/Microsoft/linux/ia32/libavcodec/codec_list.c b/chromium/config/Microsoft/linux/ia32/libavcodec/codec_list.c
+index 49f757b2d864eaf552ea0a64f11ca70b3bfaa094..577808371895a08c824b4e091cd53799a5c41008 100644
+--- a/chromium/config/Microsoft/linux/ia32/libavcodec/codec_list.c
++++ b/chromium/config/Microsoft/linux/ia32/libavcodec/codec_list.c
+@@ -2,7 +2,6 @@ static const AVCodec * const codec_list[] = {
+     &ff_h264_decoder,
+     &ff_theora_decoder,
+     &ff_vp3_decoder,
+-    &ff_vp8_decoder,
+     &ff_aac_decoder,
+     &ff_flac_decoder,
+     &ff_mp3_decoder,
+diff --git a/chromium/config/Microsoft/linux/x64/libavcodec/codec_list.c b/chromium/config/Microsoft/linux/x64/libavcodec/codec_list.c
+index 49f757b2d864eaf552ea0a64f11ca70b3bfaa094..577808371895a08c824b4e091cd53799a5c41008 100644
+--- a/chromium/config/Microsoft/linux/x64/libavcodec/codec_list.c
++++ b/chromium/config/Microsoft/linux/x64/libavcodec/codec_list.c
+@@ -2,7 +2,6 @@ static const AVCodec * const codec_list[] = {
+     &ff_h264_decoder,
+     &ff_theora_decoder,
+     &ff_vp3_decoder,
+-    &ff_vp8_decoder,
+     &ff_aac_decoder,
+     &ff_flac_decoder,
+     &ff_mp3_decoder,
+diff --git a/chromium/config/Microsoft/mac/x64/libavcodec/codec_list.c b/chromium/config/Microsoft/mac/x64/libavcodec/codec_list.c
+index 49f757b2d864eaf552ea0a64f11ca70b3bfaa094..577808371895a08c824b4e091cd53799a5c41008 100644
+--- a/chromium/config/Microsoft/mac/x64/libavcodec/codec_list.c
++++ b/chromium/config/Microsoft/mac/x64/libavcodec/codec_list.c
+@@ -2,7 +2,6 @@ static const AVCodec * const codec_list[] = {
+     &ff_h264_decoder,
+     &ff_theora_decoder,
+     &ff_vp3_decoder,
+-    &ff_vp8_decoder,
+     &ff_aac_decoder,
+     &ff_flac_decoder,
+     &ff_mp3_decoder,
+diff --git a/chromium/config/Microsoft/win/arm64/libavcodec/codec_list.c b/chromium/config/Microsoft/win/arm64/libavcodec/codec_list.c
+index 49f757b2d864eaf552ea0a64f11ca70b3bfaa094..577808371895a08c824b4e091cd53799a5c41008 100644
+--- a/chromium/config/Microsoft/win/arm64/libavcodec/codec_list.c
++++ b/chromium/config/Microsoft/win/arm64/libavcodec/codec_list.c
+@@ -2,7 +2,6 @@ static const AVCodec * const codec_list[] = {
+     &ff_h264_decoder,
+     &ff_theora_decoder,
+     &ff_vp3_decoder,
+-    &ff_vp8_decoder,
+     &ff_aac_decoder,
+     &ff_flac_decoder,
+     &ff_mp3_decoder,
+diff --git a/chromium/config/Microsoft/win/ia32/libavcodec/codec_list.c b/chromium/config/Microsoft/win/ia32/libavcodec/codec_list.c
+index 49f757b2d864eaf552ea0a64f11ca70b3bfaa094..577808371895a08c824b4e091cd53799a5c41008 100644
+--- a/chromium/config/Microsoft/win/ia32/libavcodec/codec_list.c
++++ b/chromium/config/Microsoft/win/ia32/libavcodec/codec_list.c
+@@ -2,7 +2,6 @@ static const AVCodec * const codec_list[] = {
+     &ff_h264_decoder,
+     &ff_theora_decoder,
+     &ff_vp3_decoder,
+-    &ff_vp8_decoder,
+     &ff_aac_decoder,
+     &ff_flac_decoder,
+     &ff_mp3_decoder,
+diff --git a/chromium/config/Microsoft/win/x64/libavcodec/codec_list.c b/chromium/config/Microsoft/win/x64/libavcodec/codec_list.c
+index 49f757b2d864eaf552ea0a64f11ca70b3bfaa094..577808371895a08c824b4e091cd53799a5c41008 100644
+--- a/chromium/config/Microsoft/win/x64/libavcodec/codec_list.c
++++ b/chromium/config/Microsoft/win/x64/libavcodec/codec_list.c
+@@ -2,7 +2,6 @@ static const AVCodec * const codec_list[] = {
+     &ff_h264_decoder,
+     &ff_theora_decoder,
+     &ff_vp3_decoder,
+-    &ff_vp8_decoder,
+     &ff_aac_decoder,
+     &ff_flac_decoder,
+     &ff_mp3_decoder,

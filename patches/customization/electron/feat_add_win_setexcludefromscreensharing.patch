@@ -1,0 +1,204 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Milan Burda <miburda@microsoft.com>
+Date: Fri, 9 Aug 2019 14:21:50 +0200
+Subject: feat: add win.setExcludeFromScreenSharing()
+
+Microsoft patch
+
+diff --git a/docs/api/browser-window.md b/docs/api/browser-window.md
+index f06ab5e9969799792115c63436aeeb5a735f4718..f3d0b36cfa323c00db3db577b806d7b123e77e0d 100644
+--- a/docs/api/browser-window.md
++++ b/docs/api/browser-window.md
+@@ -1715,6 +1715,12 @@ Prevents the window contents from being captured by other apps.
+ On macOS it sets the NSWindow's sharingType to NSWindowSharingNone.
+ On Windows it calls SetWindowDisplayAffinity with `WDA_MONITOR`.
+ 
++#### `win.setExcludeFromScreenSharing(enable)` _macOS_ _Windows_
++
++* `enable` Boolean
++
++Excludes the window from screen sharing.
++
+ #### `win.setFocusable(focusable)` _macOS_ _Windows_
+ 
+ * `focusable` Boolean
+diff --git a/shell/browser/api/electron_api_top_level_window.cc b/shell/browser/api/electron_api_top_level_window.cc
+index d6258678e05e396d77fdf11fdfdcf456a12abcb8..4318e38fd0e3252a7f04b33366999232886644c2 100644
+--- a/shell/browser/api/electron_api_top_level_window.cc
++++ b/shell/browser/api/electron_api_top_level_window.cc
+@@ -686,6 +686,14 @@ void TopLevelWindow::SetContentProtection(bool enable) {
+   return window_->SetContentProtection(enable);
+ }
+ 
++#if BUILDFLAG(MICROSOFT_ENABLE_EXCLUDE_FROM_SCREEN_SHARING)
++
++bool TopLevelWindow::SetExcludeFromScreenSharing(bool enable) {
++  return window_->SetExcludeFromScreenSharing(enable);
++}
++
++#endif
++
+ void TopLevelWindow::SetFocusable(bool focusable) {
+   return window_->SetFocusable(focusable);
+ }
+@@ -1217,6 +1225,10 @@ void TopLevelWindow::BuildPrototype(v8::Isolate* isolate,
+       .SetMethod("isDocumentEdited", &TopLevelWindow::IsDocumentEdited)
+       .SetMethod("setIgnoreMouseEvents", &TopLevelWindow::SetIgnoreMouseEvents)
+       .SetMethod("setContentProtection", &TopLevelWindow::SetContentProtection)
++#if BUILDFLAG(MICROSOFT_ENABLE_EXCLUDE_FROM_SCREEN_SHARING)
++      .SetMethod("setExcludeFromScreenSharing",
++                 &TopLevelWindow::SetExcludeFromScreenSharing)
++#endif
+       .SetMethod("setFocusable", &TopLevelWindow::SetFocusable)
+       .SetMethod("setMenu", &TopLevelWindow::SetMenu)
+       .SetMethod("removeMenu", &TopLevelWindow::RemoveMenu)
+diff --git a/shell/browser/api/electron_api_top_level_window.h b/shell/browser/api/electron_api_top_level_window.h
+index 89b33c3b599ff2a530c80d2399c0260801f6b055..2d055743e65694d51ac6a891e311b739a0665b51 100644
+--- a/shell/browser/api/electron_api_top_level_window.h
++++ b/shell/browser/api/electron_api_top_level_window.h
+@@ -14,6 +14,7 @@
+ #include "content/public/browser/browser_task_traits.h"
+ #include "content/public/browser/browser_thread.h"
+ #include "gin/handle.h"
++#include "microsoft/buildflags/buildflags.h"
+ #include "shell/browser/native_window.h"
+ #include "shell/browser/native_window_observer.h"
+ #include "shell/common/api/electron_api_native_image.h"
+@@ -167,6 +168,9 @@ class TopLevelWindow : public gin_helper::TrackableObject<TopLevelWindow>,
+   bool IsDocumentEdited();
+   void SetIgnoreMouseEvents(bool ignore, gin_helper::Arguments* args);
+   void SetContentProtection(bool enable);
++#if BUILDFLAG(MICROSOFT_ENABLE_EXCLUDE_FROM_SCREEN_SHARING)
++  bool SetExcludeFromScreenSharing(bool enable);
++#endif
+   void SetFocusable(bool focusable);
+   void SetMenu(v8::Isolate* isolate, v8::Local<v8::Value> menu);
+   void RemoveMenu();
+diff --git a/shell/browser/native_window.h b/shell/browser/native_window.h
+index 037467b66a62859b8fb742b3be4366659642e971..415264bba2706106c30ef37b495826be0a7fd0a3 100644
+--- a/shell/browser/native_window.h
++++ b/shell/browser/native_window.h
+@@ -20,6 +20,7 @@
+ #include "content/public/browser/desktop_media_id.h"
+ #include "content/public/browser/web_contents_user_data.h"
+ #include "extensions/browser/app_window/size_constraints.h"
++#include "microsoft/buildflags/buildflags.h"
+ #include "shell/browser/native_window_observer.h"
+ #include "ui/views/widget/widget_delegate.h"
+ 
+@@ -160,6 +161,9 @@ class NativeWindow : public base::SupportsUserData,
+   virtual bool IsDocumentEdited();
+   virtual void SetIgnoreMouseEvents(bool ignore, bool forward) = 0;
+   virtual void SetContentProtection(bool enable) = 0;
++#if BUILDFLAG(MICROSOFT_ENABLE_EXCLUDE_FROM_SCREEN_SHARING)
++  virtual bool SetExcludeFromScreenSharing(bool enable) = 0;
++#endif
+   virtual void SetFocusable(bool focusable);
+   virtual void SetMenu(ElectronMenuModel* menu);
+   virtual void SetParentWindow(NativeWindow* parent);
+diff --git a/shell/browser/native_window_mac.h b/shell/browser/native_window_mac.h
+index 35171d557505a5283dcab2d78400425d39b89584..d00cce1e752c40e3584df914e85846592d9e4f69 100644
+--- a/shell/browser/native_window_mac.h
++++ b/shell/browser/native_window_mac.h
+@@ -110,6 +110,9 @@ class NativeWindowMac : public NativeWindow, public ui::NativeThemeObserver {
+   bool IsDocumentEdited() override;
+   void SetIgnoreMouseEvents(bool ignore, bool forward) override;
+   void SetContentProtection(bool enable) override;
++#if BUILDFLAG(MICROSOFT_ENABLE_EXCLUDE_FROM_SCREEN_SHARING)
++  bool SetExcludeFromScreenSharing(bool enable) override;
++#endif
+   void SetFocusable(bool focusable) override;
+   void AddBrowserView(NativeBrowserView* browser_view) override;
+   void RemoveBrowserView(NativeBrowserView* browser_view) override;
+diff --git a/shell/browser/native_window_mac.mm b/shell/browser/native_window_mac.mm
+index 0d3959aa0061c2183b98b7101727d8ddcb38a0e8..c74b9a95fd6b89d609a16071944d5a18ccfda180 100644
+--- a/shell/browser/native_window_mac.mm
++++ b/shell/browser/native_window_mac.mm
+@@ -1254,6 +1254,15 @@ void NativeWindowMac::SetContentProtection(bool enable) {
+       setSharingType:enable ? NSWindowSharingNone : NSWindowSharingReadOnly];
+ }
+ 
++#if BUILDFLAG(MICROSOFT_ENABLE_EXCLUDE_FROM_SCREEN_SHARING)
++
++bool NativeWindowMac::SetExcludeFromScreenSharing(bool enable) {
++  SetContentProtection(enable);
++  return true;
++}
++
++#endif
++
+ void NativeWindowMac::SetFocusable(bool focusable) {
+   // No known way to unfocus the window if it had the focus. Here we do not
+   // want to call Focus(false) because it moves the window to the back, i.e.
+diff --git a/shell/browser/native_window_views.cc b/shell/browser/native_window_views.cc
+index 710887f3bca49c84c312b74cc52e71cfbb43156c..8791fe1879c7ee839004c93a9b17ac8a51cb0763 100644
+--- a/shell/browser/native_window_views.cc
++++ b/shell/browser/native_window_views.cc
+@@ -69,6 +69,24 @@
+ #include "ui/views/widget/desktop_aura/desktop_native_widget_aura.h"
+ #endif
+ 
++#if BUILDFLAG(MICROSOFT_ENABLE_EXCLUDE_FROM_SCREEN_SHARING) && defined(OS_WIN)
++
++enum WINDOWCOMPOSITIONATTRIB {
++  WCA_EXCLUDED_FROM_DDA = 24,
++};
++
++struct WINDOWCOMPOSITIONATTRIBDATA {
++  WINDOWCOMPOSITIONATTRIB Attrib;
++  void* pvData;
++  UINT cbData;
++};
++
++BOOL WINAPI
++SetWindowCompositionAttribute(HWND hwnd,
++                              WINDOWCOMPOSITIONATTRIBDATA* pAttrData);
++
++#endif
++
+ namespace electron {
+ 
+ namespace {
+@@ -1019,6 +1037,28 @@ void NativeWindowViews::SetContentProtection(bool enable) {
+ #endif
+ }
+ 
++#if BUILDFLAG(MICROSOFT_ENABLE_EXCLUDE_FROM_SCREEN_SHARING)
++
++bool NativeWindowViews::SetExcludeFromScreenSharing(bool enable) {
++#if defined(OS_WIN)
++  if (auto SetWindowCompositionAttributePtr =
++          reinterpret_cast<decltype(&SetWindowCompositionAttribute)>(
++              GetProcAddress(GetModuleHandle(L"user32.dll"),
++                             "SetWindowCompositionAttribute"))) {
++    BOOL value = enable;
++    WINDOWCOMPOSITIONATTRIBDATA data = {};
++    data.Attrib = WCA_EXCLUDED_FROM_DDA;
++    data.pvData = &value;
++    data.cbData = sizeof(value);
++
++    return !!SetWindowCompositionAttributePtr(GetAcceleratedWidget(), &data);
++  }
++#endif
++  return false;
++}
++
++#endif
++
+ void NativeWindowViews::SetFocusable(bool focusable) {
+   widget()->widget_delegate()->SetCanActivate(focusable);
+ #if defined(OS_WIN)
+diff --git a/shell/browser/native_window_views.h b/shell/browser/native_window_views.h
+index 5352f93899bba693ab251c7f9ae97811a9759435..e0d4bd0ad87e0e2dec9ac9687416386c576d1679 100644
+--- a/shell/browser/native_window_views.h
++++ b/shell/browser/native_window_views.h
+@@ -110,6 +110,9 @@ class NativeWindowViews : public NativeWindow,
+   double GetOpacity() override;
+   void SetIgnoreMouseEvents(bool ignore, bool forward) override;
+   void SetContentProtection(bool enable) override;
++#if BUILDFLAG(MICROSOFT_ENABLE_EXCLUDE_FROM_SCREEN_SHARING)
++  bool SetExcludeFromScreenSharing(bool enable) override;
++#endif
+   void SetFocusable(bool focusable) override;
+   void SetMenu(ElectronMenuModel* menu_model) override;
+   void AddBrowserView(NativeBrowserView* browser_view) override;

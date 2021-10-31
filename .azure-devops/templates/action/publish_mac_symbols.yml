@@ -1,0 +1,27 @@
+parameters:
+- name: appCenterApp
+  type: string
+- name: appCenterToken
+  type: string
+- name: symbolsType
+  type: string
+  values:
+  - symbol
+  - breakpad
+- name: symbolsZipPath
+  type: string
+- name: _appCenterCliPath
+  type: string
+  default: $(Build.SourcesDirectory)/node_modules/appcenter-cli/bin/appcenter.js
+
+steps:
+- script: >
+    node
+    ${{ parameters._appCenterCliPath }}
+    crashes
+    upload-symbols
+    --${{ parameters.symbolsType }} ${{ parameters.symbolsZipPath }}
+    --app ${{ parameters.appCenterApp }}
+    --token ${{ parameters.appCenterToken }}
+  continueOnError: true
+  displayName: Upload debug symbols to App Center ${{ parameters.appCenterApp }}

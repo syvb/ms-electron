@@ -1,0 +1,172 @@
+# Run Electron JavaScript tests.
+# The job depends on an Electron build and a Node.js headers build.
+
+parameters:
+  arch: ''  # {'arm64', 'x64', 'x86'}
+  buildId: 0  # Use it to run tests for a specific build. Zero stands for the current build.
+  ignoreTestFailures: false
+  osVersion: ''  # A OS version to run tests on.
+  platform: ''  # {linux, mac, mas, windows}
+  _buildDirectory: tests_$(Build.BuildId)  # Use a new directory for each run.
+  _electronArtifacts:
+  - name: .hash
+    targetDir: electron/spec
+  - name: electron-api.json
+    targetDir: electron
+  - name: electron.d.ts
+    targetDir: electron
+  _specDirectories:
+  - spec
+  - spec-main
+  _testRunners:  # Electron has several tests runners that write results into their own files.
+  - name: main
+    resultsPath: test-results-main.xml
+  # TODO(alkuzmin): Run "native" tests?
+  - name: remote
+    resultsPath: test-results-remote.xml
+  _workingDirectory: $(Build.BinariesDirectory)
+
+jobs:
+- template: ../executor/test_runner.yml
+  parameters:
+    jobId: run_javascript_tests_${{ parameters.platform }}_${{ parameters.arch }}_on_${{ parameters.osVersion }}
+    ${{ if eq(parameters.osVersion, '') }}:
+      displayName: Test ${{ parameters.platform }} ${{ parameters.arch }}
+    ${{ if ne(parameters.osVersion, '') }}:
+      displayName: Test ${{ parameters.platform }} ${{ parameters.arch }} on ${{ parameters.osVersion }}
+    # TODO(alkuzmin): Do not ignore results of a tests run on Windows ARM64.
+    ${{ if and(eq(parameters.platform, 'windows'), eq(parameters.arch, 'arm64')) }}:
+      continueOnError: true
+    # If we are going to use artifacts of the current build, let's wait for them to become available.
+    ${{ if eq(parameters.buildId, 0) }}:
+      dependsOn:
+      - build_electron_${{ parameters.platform }}_${{ parameters.arch }}
+    osVersion: ${{ parameters.osVersion }}
+    platform: ${{ parameters.platform }}
+    timeoutInMinutes: 90
+    variables:
+    - group: Electron
+    - ${{ if eq(parameters.platform, 'linux') }}:
+      # For headless testing.
+      - name: DISPLAY
+        value: ':99.0'
+    steps:
+    # Download artifacts we need.
+    - task: DownloadPipelineArtifact@0
+      displayName: Download an Electron binary
+      inputs:
+        artifactName: 'electron ${{ parameters.platform }} ${{ parameters.arch }}'
+        ${{ if ne(parameters.buildId, 0) }}:
+          pipelineId: ${{ parameters.buildId }}
+        targetPath: ${{ parameters._workingDirectory }}/downloaded_artifacts/electron
+
+    # Get the Electron sources and put binaries in place.
+    - template: ../action/checkout_self.yml
+
+    - template: ../action/set_variable_from_file.yml
+      parameters:
+        filePath: ${{ parameters._workingDirectory }}/downloaded_artifacts/electron/flavour.txt
+        name: Electron.Local.Flavour
+
+    - template: ../action/checkout_electron_without_chromium.yml
+      parameters:
+        checkoutSelf: false
+        gitCacheDirectory: $(Electron.Executor.GitCacheDirectory)
+        platform: ${{ parameters.platform }}
+        workingDirectory: ${{ parameters._workingDirectory }}
+
+    # A full path to the build directory.
+    # Just to avoid duplication and very long strings.
+    - template: ../action/set_variable.yml
+      parameters:
+        name: Electron.Local.BuildDirectory
+        value: ${{ parameters._workingDirectory }}/src/out/${{ parameters._buildDirectory }}
+
+    - template: ../action/extract_files.yml
+      parameters:
+        arch: ${{ parameters.arch }}
+        archiveFile: ${{ parameters._workingDirectory }}/downloaded_artifacts/electron/dist.zip
+        destinationFolder: $(Electron.Local.BuildDirectory)
+        displayName: Extract the Electron binary
+        platform: ${{ parameters.platform }}
+
+    - ${{ each dir in parameters._specDirectories }}:
+      - template: ../action/extract_files.yml
+        parameters:
+          arch: ${{ parameters.arch }}
+          archiveFile: ${{ parameters._workingDirectory }}/downloaded_artifacts/electron/${{ dir }}_node_modules.zip
+          destinationFolder: ${{ parameters._workingDirectory }}/src/electron/${{ dir }}/node_modules
+          displayName: Extract Node.js modules for tests in ${{ dir }}
+          platform: ${{ parameters.platform }}
+
+    - ${{ each file in parameters._electronArtifacts }}:
+      - template: ../action/copy_file.yml
+        parameters:
+          displayName: Copy ${{ file.name }} to ${{ file.targetDir }}
+          from: ${{ parameters._workingDirectory }}/downloaded_artifacts/electron/${{ file.name }}
+          to: ${{ parameters._workingDirectory }}/src/${{ file.targetDir }}/${{ file.name }}
+
+    # Setup the environment for tests.
+    - ${{ if eq(parameters.platform, 'linux') }}:
+      - script: sh -e /etc/init.d/xvfb start
+        displayName: Setup the machine for headless testing
+        failOnStderr: true
+
+    - ${{ if in(parameters.platform, 'mac', 'mas') }}:
+      # AutoUpdater tests on Mac require a code-signing identity in the system.
+      - script: script/codesign/generate-identity.sh
+        workingDirectory: ${{ parameters._workingDirectory }}/src/electron
+        displayName: Install a code-signing identity
+        failOnStderr: false  # Some stuff is written to stderr, but it's OK.
+
+    # Run Electron's JavaScript tests.
+    - template: ../action/set_variable.yml
+      parameters:
+        name: Electron.Local.TestResultsDirectory
+        value: ${{ parameters._workingDirectory }}/test_results
+
+    # Crash Reporter tests are disabled on Mac in the upstream Electron.
+    # Crash Reporter tests are broken for the "teams" and "vscode" flavours.
+    # TODO(alkuzmin): Fix the Crash Reporter tests and enable them back.
+    - template: ../action/set_variable.yml
+      parameters:
+        condition: >-
+          or(
+            ${{ in(parameters.platform, 'mac', 'mas') }},
+            in(variables['Electron.Local.Flavour'], 'teams', 'vscode')
+          )
+        name: DISABLE_CRASH_REPORTER_TESTS
+        value: true
+
+    - ${{ each runner in parameters._testRunners }}:
+      - script: npm run test -- --ci --enable-logging --verbose --runners ${{ runner.name }}
+        workingDirectory: ${{ parameters._workingDirectory }}/src/electron
+        displayName: Run "${{ runner.name }}" tests
+        failOnStderr: false  # A lot of stuff gets written to stderr.
+        continueOnError: ${{ parameters.ignoreTestFailures }}
+        env:
+          # The warnings will be explicitly enabled by their test suite.
+          ELECTRON_DISABLE_SECURITY_WARNINGS: 1
+          ELECTRON_ENABLE_STACK_DUMPING: 1
+          ELECTRON_OUT_DIR: ${{ parameters._buildDirectory }}
+          ELECTRON_TEST_RESULTS_DIR: $(Electron.Local.TestResultsDirectory)
+          # Write test results to the console and a file.
+          MOCHA_MULTI_REPORTERS: mocha-junit-reporter, tap
+          MOCHA_REPORTER: mocha-multi-reporters
+
+    # If there's no test result files, something went horribly wrong.
+    - ${{ each runner in parameters._testRunners }}:
+      - template: ../action/exists.yml
+        parameters:
+          displayName: Check existence of ${{ runner.resultsPath }}
+          filePath: $(Electron.Local.TestResultsDirectory)/${{ runner.resultsPath }}
+
+      - task: PublishTestResults@2
+        displayName: Publish test results from ${{ runner.resultsPath }}
+        # Publish results even if the tests failed.
+        # There will be only a warning if the test results file is missing.
+        condition: true
+        inputs:
+          testResultsFiles: $(Electron.Local.TestResultsDirectory)/${{ runner.resultsPath }}
+          testResultsFormat: JUnit
+          testRunTitle: ${{ parameters.platform }} ${{ parameters.arch }} ${{ parameters.osVersion }} ${{ runner.name }}

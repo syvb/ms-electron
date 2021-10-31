@@ -1,0 +1,481 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Nikita Kot <kotn01@outlook.cz>
+Date: Fri, 4 Dec 2020 18:43:20 +0100
+Subject: feat: exposeInMainWorld allow to expose non-object APIs (#26594)
+
+Backport: https://github.com/electron/electron/pull/26594
+
+diff --git a/docs/api/context-bridge.md b/docs/api/context-bridge.md
+index cd5eb578c107c204a5d1f2d81374b18d6be3fa19..8db4295193a57487c79754b0a3456638ab478341 100644
+--- a/docs/api/context-bridge.md
++++ b/docs/api/context-bridge.md
+@@ -44,19 +44,19 @@ The `contextBridge` module has the following methods:
+ ### `contextBridge.exposeInMainWorld(apiKey, api)` _Experimental_
+ 
+ * `apiKey` String - The key to inject the API onto `window` with.  The API will be accessible on `window[apiKey]`.
+-* `api` Record<String, any> - Your API object, more information on what this API can be and how it works is available below.
++* `api` any - Your API, more information on what this API can be and how it works is available below.
+ 
+ ## Usage
+ 
+-### API Objects
++### API
+ 
+-The `api` object provided to [`exposeInMainWorld`](#contextbridgeexposeinmainworldapikey-api-experimental) must be an object
++The `api` provided to [`exposeInMainWorld`](#contextbridgeexposeinmainworldapikey-api-experimental) must be a `Function`, `String`, `Number`, `Array`, `Boolean`, or an object
+ whose keys are strings and values are a `Function`, `String`, `Number`, `Array`, `Boolean`, or another nested object that meets the same conditions.
+ 
+ `Function` values are proxied to the other context and all other values are **copied** and **frozen**. Any data / primitives sent in
+-the API object become immutable and updates on either side of the bridge do not result in an update on the other side.
++the API become immutable and updates on either side of the bridge do not result in an update on the other side.
+ 
+-An example of a complex API object is shown below:
++An example of a complex API is shown below:
+ 
+ ```javascript
+ const { contextBridge } = require('electron')
+diff --git a/lib/renderer/api/context-bridge.ts b/lib/renderer/api/context-bridge.ts
+index 54b3716d6159b3834e6507040f1d082ba9bc8663..32831229e7f9316e681edcdf12298ebd8bceb852 100644
+--- a/lib/renderer/api/context-bridge.ts
++++ b/lib/renderer/api/context-bridge.ts
+@@ -8,7 +8,7 @@ const checkContextIsolationEnabled = () => {
+ };
+ 
+ const contextBridge: Electron.ContextBridge = {
+-  exposeInMainWorld: (key: string, api: Record<string, any>) => {
++  exposeInMainWorld: (key: string, api: any) => {
+     checkContextIsolationEnabled();
+     return binding.exposeAPIInMainWorld(key, api);
+   }
+diff --git a/shell/renderer/api/electron_api_context_bridge.cc b/shell/renderer/api/electron_api_context_bridge.cc
+index ba5d3d5b59d6b4c29959df5119e7824440f63794..1aa50d1797e30e66648229db22300e36387e04b1 100644
+--- a/shell/renderer/api/electron_api_context_bridge.cc
++++ b/shell/renderer/api/electron_api_context_bridge.cc
+@@ -515,11 +515,13 @@ v8::MaybeLocal<v8::Object> CreateProxyForAPI(
+   }
+ }
+ 
+-void ExposeAPIInMainWorld(const std::string& key,
+-                          v8::Local<v8::Object> api_object,
++void ExposeAPIInMainWorld(v8::Isolate* isolate,
++                          const std::string& key,
++                          v8::Local<v8::Value> api,
+                           gin_helper::Arguments* args) {
+   TRACE_EVENT1("electron", "ContextBridge::ExposeAPIInMainWorld", "key", key);
+-  auto* render_frame = GetRenderFrame(api_object);
++
++  auto* render_frame = GetRenderFrame(isolate->GetCurrentContext()->Global());
+   CHECK(render_frame);
+   auto* frame = render_frame->GetWebFrame();
+   CHECK(frame);
+@@ -541,12 +543,13 @@ void ExposeAPIInMainWorld(const std::string& key,
+     context_bridge::ObjectCache object_cache;
+     v8::Context::Scope main_context_scope(main_context);
+ 
+-    v8::MaybeLocal<v8::Object> maybe_proxy = CreateProxyForAPI(
+-        api_object, isolated_context, main_context, &object_cache, false, 0);
++    v8::MaybeLocal<v8::Value> maybe_proxy = PassValueToOtherContext(
++        isolated_context, main_context, api, &object_cache, false, 0);
+     if (maybe_proxy.IsEmpty())
+       return;
+     auto proxy = maybe_proxy.ToLocalChecked();
+-    if (!DeepFreeze(proxy, main_context))
++    if (proxy->IsObject() && !proxy->IsTypedArray() &&
++        !DeepFreeze(v8::Local<v8::Object>::Cast(proxy), main_context))
+       return;
+ 
+     global.SetReadOnlyNonConfigurable(key, proxy);
+diff --git a/spec-main/api-context-bridge-spec.ts b/spec-main/api-context-bridge-spec.ts
+index dea67cccef103af840d10371728ff006143e6476..4f01d89e5f879a8658524ccf39b6080a20d7e624 100644
+--- a/spec-main/api-context-bridge-spec.ts
++++ b/spec-main/api-context-bridge-spec.ts
+@@ -104,6 +104,27 @@ describe('contextBridge', () => {
+       };
+ 
+       it('should proxy numbers', async () => {
++        await makeBindingWindow(() => {
++          contextBridge.exposeInMainWorld('example', 123);
++        });
++        const result = await callWithBindings((root: any) => {
++          return root.example;
++        });
++        expect(result).to.equal(123);
++      });
++
++      it('should make global properties read-only', async () => {
++        await makeBindingWindow(() => {
++          contextBridge.exposeInMainWorld('example', 123);
++        });
++        const result = await callWithBindings((root: any) => {
++          root.example = 456;
++          return root.example;
++        });
++        expect(result).to.equal(123);
++      });
++
++      it('should proxy nested numbers', async () => {
+         await makeBindingWindow(() => {
+           contextBridge.exposeInMainWorld('example', {
+             myNumber: 123
+@@ -129,6 +150,16 @@ describe('contextBridge', () => {
+       });
+ 
+       it('should proxy strings', async () => {
++        await makeBindingWindow(() => {
++          contextBridge.exposeInMainWorld('example', 'my-words');
++        });
++        const result = await callWithBindings((root: any) => {
++          return root.example;
++        });
++        expect(result).to.equal('my-words');
++      });
++
++      it('should proxy nested strings', async () => {
+         await makeBindingWindow(() => {
+           contextBridge.exposeInMainWorld('example', {
+             myString: 'my-words'
+@@ -141,6 +172,16 @@ describe('contextBridge', () => {
+       });
+ 
+       it('should proxy arrays', async () => {
++        await makeBindingWindow(() => {
++          contextBridge.exposeInMainWorld('example', [123, 'my-words']);
++        });
++        const result = await callWithBindings((root: any) => {
++          return [root.example, Array.isArray(root.example)];
++        });
++        expect(result).to.deep.equal([[123, 'my-words'], true]);
++      });
++
++      it('should proxy nested arrays', async () => {
+         await makeBindingWindow(() => {
+           contextBridge.exposeInMainWorld('example', {
+             myArr: [123, 'my-words']
+@@ -153,6 +194,21 @@ describe('contextBridge', () => {
+       });
+ 
+       it('should make arrays immutable', async () => {
++        await makeBindingWindow(() => {
++          contextBridge.exposeInMainWorld('example', [123, 'my-words']);
++        });
++        const immutable = await callWithBindings((root: any) => {
++          try {
++            root.example.push(456);
++            return false;
++          } catch {
++            return true;
++          }
++        });
++        expect(immutable).to.equal(true);
++      });
++
++      it('should make nested arrays immutable', async () => {
+         await makeBindingWindow(() => {
+           contextBridge.exposeInMainWorld('example', {
+             myArr: [123, 'my-words']
+@@ -170,6 +226,16 @@ describe('contextBridge', () => {
+       });
+ 
+       it('should proxy booleans', async () => {
++        await makeBindingWindow(() => {
++          contextBridge.exposeInMainWorld('example', true);
++        });
++        const result = await callWithBindings((root: any) => {
++          return root.example;
++        });
++        expect(result).to.equal(true);
++      });
++
++      it('should proxy nested booleans', async () => {
+         await makeBindingWindow(() => {
+           contextBridge.exposeInMainWorld('example', {
+             myBool: true
+@@ -182,6 +248,18 @@ describe('contextBridge', () => {
+       });
+ 
+       it('should proxy promises and resolve with the correct value', async () => {
++        await makeBindingWindow(() => {
++          contextBridge.exposeInMainWorld('example',
++            Promise.resolve('i-resolved')
++          );
++        });
++        const result = await callWithBindings((root: any) => {
++          return root.example;
++        });
++        expect(result).to.equal('i-resolved');
++      });
++
++      it('should proxy nested promises and resolve with the correct value', async () => {
+         await makeBindingWindow(() => {
+           contextBridge.exposeInMainWorld('example', {
+             myPromise: Promise.resolve('i-resolved')
+@@ -194,6 +272,21 @@ describe('contextBridge', () => {
+       });
+ 
+       it('should proxy promises and reject with the correct value', async () => {
++        await makeBindingWindow(() => {
++          contextBridge.exposeInMainWorld('example', Promise.reject(new Error('i-rejected')));
++        });
++        const result = await callWithBindings(async (root: any) => {
++          try {
++            await root.example;
++            return null;
++          } catch (err) {
++            return err;
++          }
++        });
++        expect(result).to.be.an.instanceOf(Error).with.property('message', 'Uncaught Error: i-rejected');
++      });
++
++      it('should proxy nested promises and reject with the correct value', async () => {
+         await makeBindingWindow(() => {
+           contextBridge.exposeInMainWorld('example', {
+             myPromise: Promise.reject(new Error('i-rejected'))
+@@ -249,6 +342,16 @@ describe('contextBridge', () => {
+         expect(result).to.deep.equal([123, 'help', false, 'promise']);
+       });
+ 
++      it('should proxy functions', async () => {
++        await makeBindingWindow(() => {
++          contextBridge.exposeInMainWorld('example', () => 'return-value');
++        });
++        const result = await callWithBindings(async (root: any) => {
++          return root.example();
++        });
++        expect(result).equal('return-value');
++      });
++
+       it('should proxy methods that are callable multiple times', async () => {
+         await makeBindingWindow(() => {
+           contextBridge.exposeInMainWorld('example', {
+@@ -299,7 +402,31 @@ describe('contextBridge', () => {
+         expect(result).to.deep.equal([123, 456, 789, false]);
+       });
+ 
+-      it('it should proxy null and undefined correctly', async () => {
++      it('it should proxy null', async () => {
++        await makeBindingWindow(() => {
++          contextBridge.exposeInMainWorld('example', null);
++        });
++        const result = await callWithBindings((root: any) => {
++          // Convert to strings as although the context bridge keeps the right value
++          // IPC does not
++          return `${root.example}`;
++        });
++        expect(result).to.deep.equal('null');
++      });
++
++      it('it should proxy undefined', async () => {
++        await makeBindingWindow(() => {
++          contextBridge.exposeInMainWorld('example', undefined);
++        });
++        const result = await callWithBindings((root: any) => {
++          // Convert to strings as although the context bridge keeps the right value
++          // IPC does not
++          return `${root.example}`;
++        });
++        expect(result).to.deep.equal('undefined');
++      });
++
++      it('it should proxy nested null and undefined correctly', async () => {
+         await makeBindingWindow(() => {
+           contextBridge.exposeInMainWorld('example', {
+             values: [null, undefined]
+@@ -313,6 +440,19 @@ describe('contextBridge', () => {
+         expect(result).to.deep.equal(['null', 'undefined']);
+       });
+ 
++      it('should proxy symbols', async () => {
++        await makeBindingWindow(() => {
++          const mySymbol = Symbol('unique');
++          const isSymbol = (s: Symbol) => s === mySymbol;
++          contextBridge.exposeInMainWorld('symbol', mySymbol);
++          contextBridge.exposeInMainWorld('isSymbol', isSymbol);
++        });
++        const result = await callWithBindings((root: any) => {
++          return root.isSymbol(root.symbol);
++        });
++        expect(result).to.equal(true, 'symbols should be equal across contexts');
++      });
++
+       it('should proxy symbols such that symbol equality works', async () => {
+         await makeBindingWindow(() => {
+           const mySymbol = Symbol('unique');
+@@ -341,6 +481,26 @@ describe('contextBridge', () => {
+         expect(result).to.equal(123, 'symbols key lookup should work across contexts');
+       });
+ 
++      it('should proxy typed arrays', async () => {
++        await makeBindingWindow(() => {
++          contextBridge.exposeInMainWorld('example', new Uint8Array(100));
++        });
++        const result = await callWithBindings((root: any) => {
++          return Object.getPrototypeOf(root.example) === Uint8Array.prototype;
++        });
++        expect(result).equal(true);
++      });
++
++      it('should proxy regexps', async () => {
++        await makeBindingWindow(() => {
++          contextBridge.exposeInMainWorld('example', /a/g);
++        });
++        const result = await callWithBindings((root: any) => {
++          return Object.getPrototypeOf(root.example) === RegExp.prototype;
++        });
++        expect(result).equal(true);
++      });
++
+       it('should proxy typed arrays and regexps through the serializer', async () => {
+         await makeBindingWindow(() => {
+           contextBridge.exposeInMainWorld('example', {
+@@ -466,6 +626,22 @@ describe('contextBridge', () => {
+         expect(result).to.equal('final value');
+       });
+ 
++      it('should work with complex nested methods and promises attached directly to the global', async () => {
++        await makeBindingWindow(() => {
++          contextBridge.exposeInMainWorld('example',
++            (second: Function) => second((fourth: Function) => {
++              return fourth();
++            })
++          );
++        });
++        const result = await callWithBindings((root: any) => {
++          return root.example((third: Function) => {
++            return third(() => Promise.resolve('final value'));
++          });
++        });
++        expect(result).to.equal('final value');
++      });
++
+       it('should throw an error when recursion depth is exceeded', async () => {
+         await makeBindingWindow(() => {
+           contextBridge.exposeInMainWorld('example', {
+@@ -641,6 +817,127 @@ describe('contextBridge', () => {
+         expect(result.protoMatches).to.deep.equal(result.protoMatches.map(() => true));
+       });
+ 
++      it('should not leak prototypes when attaching directly to the global', async () => {
++        await makeBindingWindow(() => {
++          const toExpose = {
++            number: 123,
++            string: 'string',
++            boolean: true,
++            arr: [123, 'string', true, ['foo']],
++            symbol: Symbol('foo'),
++            bigInt: 10n,
++            getObject: () => ({ thing: 123 }),
++            getNumber: () => 123,
++            getString: () => 'string',
++            getBoolean: () => true,
++            getArr: () => [123, 'string', true, ['foo']],
++            getPromise: async () => ({ number: 123, string: 'string', boolean: true, fn: () => 'string', arr: [123, 'string', true, ['foo']] }),
++            getFunctionFromFunction: async () => () => null,
++            object: {
++              number: 123,
++              string: 'string',
++              boolean: true,
++              arr: [123, 'string', true, ['foo']],
++              getPromise: async () => ({ number: 123, string: 'string', boolean: true, fn: () => 'string', arr: [123, 'string', true, ['foo']] })
++            },
++            receiveArguments: (fn: any) => fn({ key: 'value' }),
++            symbolKeyed: {
++              [Symbol('foo')]: 123
++            }
++          };
++          const keys: string[] = [];
++          Object.entries(toExpose).forEach(([key, value]) => {
++            keys.push(key);
++            contextBridge.exposeInMainWorld(key, value);
++          });
++          contextBridge.exposeInMainWorld('keys', keys);
++        });
++        const result = await callWithBindings(async (root: any) => {
++          const { keys } = root;
++          const cleanedRoot: any = {};
++          for (const [key, value] of Object.entries(root)) {
++            if (keys.includes(key)) {
++              cleanedRoot[key] = value;
++            }
++          }
++
++          let arg: any;
++          cleanedRoot.receiveArguments((o: any) => { arg = o; });
++          const protoChecks = [
++            ...Object.keys(cleanedRoot).map(key => [key, String]),
++            ...Object.getOwnPropertySymbols(cleanedRoot.symbolKeyed).map(key => [key, Symbol]),
++            [cleanedRoot, Object],
++            [cleanedRoot.number, Number],
++            [cleanedRoot.string, String],
++            [cleanedRoot.boolean, Boolean],
++            [cleanedRoot.arr, Array],
++            [cleanedRoot.arr[0], Number],
++            [cleanedRoot.arr[1], String],
++            [cleanedRoot.arr[2], Boolean],
++            [cleanedRoot.arr[3], Array],
++            [cleanedRoot.arr[3][0], String],
++            [cleanedRoot.symbol, Symbol],
++            [cleanedRoot.bigInt, BigInt],
++            [cleanedRoot.getNumber, Function],
++            [cleanedRoot.getNumber(), Number],
++            [cleanedRoot.getObject(), Object],
++            [cleanedRoot.getString(), String],
++            [cleanedRoot.getBoolean(), Boolean],
++            [cleanedRoot.getArr(), Array],
++            [cleanedRoot.getArr()[0], Number],
++            [cleanedRoot.getArr()[1], String],
++            [cleanedRoot.getArr()[2], Boolean],
++            [cleanedRoot.getArr()[3], Array],
++            [cleanedRoot.getArr()[3][0], String],
++            [cleanedRoot.getFunctionFromFunction, Function],
++            [cleanedRoot.getFunctionFromFunction(), Promise],
++            [await cleanedRoot.getFunctionFromFunction(), Function],
++            [cleanedRoot.getPromise(), Promise],
++            [await cleanedRoot.getPromise(), Object],
++            [(await cleanedRoot.getPromise()).number, Number],
++            [(await cleanedRoot.getPromise()).string, String],
++            [(await cleanedRoot.getPromise()).boolean, Boolean],
++            [(await cleanedRoot.getPromise()).fn, Function],
++            [(await cleanedRoot.getPromise()).fn(), String],
++            [(await cleanedRoot.getPromise()).arr, Array],
++            [(await cleanedRoot.getPromise()).arr[0], Number],
++            [(await cleanedRoot.getPromise()).arr[1], String],
++            [(await cleanedRoot.getPromise()).arr[2], Boolean],
++            [(await cleanedRoot.getPromise()).arr[3], Array],
++            [(await cleanedRoot.getPromise()).arr[3][0], String],
++            [cleanedRoot.object, Object],
++            [cleanedRoot.object.number, Number],
++            [cleanedRoot.object.string, String],
++            [cleanedRoot.object.boolean, Boolean],
++            [cleanedRoot.object.arr, Array],
++            [cleanedRoot.object.arr[0], Number],
++            [cleanedRoot.object.arr[1], String],
++            [cleanedRoot.object.arr[2], Boolean],
++            [cleanedRoot.object.arr[3], Array],
++            [cleanedRoot.object.arr[3][0], String],
++            [await cleanedRoot.object.getPromise(), Object],
++            [(await cleanedRoot.object.getPromise()).number, Number],
++            [(await cleanedRoot.object.getPromise()).string, String],
++            [(await cleanedRoot.object.getPromise()).boolean, Boolean],
++            [(await cleanedRoot.object.getPromise()).fn, Function],
++            [(await cleanedRoot.object.getPromise()).fn(), String],
++            [(await cleanedRoot.object.getPromise()).arr, Array],
++            [(await cleanedRoot.object.getPromise()).arr[0], Number],
++            [(await cleanedRoot.object.getPromise()).arr[1], String],
++            [(await cleanedRoot.object.getPromise()).arr[2], Boolean],
++            [(await cleanedRoot.object.getPromise()).arr[3], Array],
++            [(await cleanedRoot.object.getPromise()).arr[3][0], String],
++            [arg, Object],
++            [arg.key, String]
++          ];
++          return {
++            protoMatches: protoChecks.map(([a, Constructor]) => Object.getPrototypeOf(a) === Constructor.prototype)
++          };
++        });
++        // Every protomatch should be true
++        expect(result.protoMatches).to.deep.equal(result.protoMatches.map(() => true));
++      });
++
+       describe('internalContextBridge', () => {
+         describe('overrideGlobalValueFromIsolatedWorld', () => {
+           it('should override top level properties', async () => {

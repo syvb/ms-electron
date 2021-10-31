@@ -1,0 +1,11 @@
+parameters:
+  buildDirectory: ''  # An absolute path.
+  displayName: Run Ninja
+  failuresLimit: 1  # Keep going until N jobs fail.
+  target: ''
+
+steps:
+- script: ninja -k ${{ parameters.failuresLimit }} ${{ parameters.target }}
+  displayName: ${{ parameters.displayName }}
+  failOnStderr: true
+  workingDirectory: ${{ parameters.buildDirectory }}

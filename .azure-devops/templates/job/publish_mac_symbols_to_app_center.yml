@@ -1,0 +1,64 @@
+# Publish macOS symbol files (dSYM) of BuildID to Mac Teams desktop app on App Center.
+# App Center link: https://appcenter.ms/users/cchiv-7ym0/apps/Teams-Mac/
+
+parameters:
+  buildId: ''  # An id of a build that created Electron distribution. An empty string stands for the current build.
+  _appCenterApps:
+    breakpad:
+    - Microsoft-Teams-Electron/Teams-Mac-BreakPad-R0-R1
+    - Microsoft-Teams-Electron/Teams-Mac-BreakPad-R1_5-R1_6
+    - Microsoft-Teams-Electron/Teams-Mac-BreakPad-R2
+    - Microsoft-Teams-Electron/Teams-Mac-BreakPad-R3
+    - Microsoft-Teams-Electron/Teams-Mac-BreakPad-R4
+    native:
+    - cchiv-7ym0/Teams-Mac
+  _artifactToDownload: 'electron mac x64'
+  _dependency: build_electron_mac_x64
+  _platform: linux
+  _workingDirectory: $(Build.BinariesDirectory)
+
+jobs:
+- job: publish_electron_mac_symbols_to_teams_app_center
+  displayName: Publish Electron Mac symbols to Teams App Center
+  # Wait for artifacts to be ready if we're publishing the current build.
+  ${{ if eq(parameters.buildId, '') }}:
+    dependsOn: ${{ parameters._dependency }}
+  pool:
+    vmImage: ubuntu-18.04
+  variables:
+  - group: Electron
+  steps:
+  - template: ../action/setup_agent.yml
+    parameters:
+      platform: ${{ parameters._platform }}
+
+  - template: ../action/checkout_self.yml
+
+  # Install dependencies to get appcenter-cli module
+  - task: Npm@1
+    inputs:
+      command: install
+      workingDir: $(Build.SourcesDirectory)
+
+  - task: DownloadPipelineArtifact@0
+    displayName: Download ${{ parameters._artifactToDownload }}
+    inputs:
+      pipelineId: ${{ parameters.buildId }}
+      artifactName: ${{ parameters._artifactToDownload }}
+      targetPath: ${{ parameters._workingDirectory }}
+
+  - ${{ each dsymApp in parameters._appCenterApps.native }}:
+    - template: ../action/publish_mac_symbols.yml
+      parameters:
+        appCenterApp: ${{ dsymApp }}
+        appCenterToken: $(TeamsAppCenterToken)
+        symbolsType: symbol
+        symbolsZipPath: ${{ parameters._workingDirectory }}/dsym.zip
+
+  - ${{ each breakpadApp in parameters._appCenterApps.breakpad }}:
+    - template: ../action/publish_mac_symbols.yml
+      parameters:
+        appCenterApp: ${{ breakpadApp }}
+        appCenterToken: $(TeamsAppCenterToken)
+        symbolsType: breakpad
+        symbolsZipPath: ${{ parameters._workingDirectory }}/symbols.zip

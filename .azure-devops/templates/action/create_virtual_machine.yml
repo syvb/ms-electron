@@ -1,0 +1,18 @@
+# Create a virtual machine on Azure.
+# Requires access to the "Electron" variable group.
+
+parameters:
+  name: ''
+  platform: ''  # {'linux', 'windows'}
+
+steps:
+- template: azure_cli.yml
+  parameters:
+    displayName: Create a "${{ parameters.name }}" virtual machine on Azure
+    failOnStandardError: false
+    scriptArguments: >-
+      ${{ parameters.platform }}
+      ${{ parameters.name }}
+      $(ElectronBuildagentUsername)
+      $(ElectronBuildagentPassword)
+    scriptPath: scripts/azure/create_virtual_machine.sh

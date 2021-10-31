@@ -1,0 +1,17 @@
+# Checks file or directory existence.
+
+parameters:
+  displayName: Check file existence
+  filePath: ''  # An absolute path.
+  type: file  # {'directory', 'file'}
+
+steps:
+- task: PythonScript@0
+  displayName: ${{ parameters.displayName }}
+  inputs:
+    scriptSource: filePath
+    scriptPath: scripts/exists.py
+    arguments: >
+      "${{ parameters.filePath }}"
+      --${{ parameters.type }}
+    failOnStderr: true

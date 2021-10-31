@@ -1,0 +1,13 @@
+# Build project snapshots on all supported platforms.
+
+parameters:
+  _platforms:
+  - linux
+  - mac
+  - windows
+
+jobs:
+- ${{ each platform in parameters._platforms }}:
+  - template: ../job/build_project_snapshot.yml
+    parameters:
+      platform: ${{ platform }}

@@ -1,0 +1,52 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Ales Pergl <alpergl@microsoft.com>
+Date: Wed, 10 Oct 2018 18:55:46 +0000
+Subject: fix: supported codecs with custom ffmpeg_branding
+
+Microsoft patch
+
+diff --git a/media/BUILD.gn b/media/BUILD.gn
+index 13ec8a79c745ca08ff3c1fae2720007a3228f462..7c8b0e57386aa9438229f051b24a70115e6a7aeb 100644
+--- a/media/BUILD.gn
++++ b/media/BUILD.gn
+@@ -67,6 +67,12 @@ config("media_config") {
+   if (use_cras) {
+     defines += [ "USE_CRAS" ]
+   }
++  if (ffmpeg_branding == "Slim") {
++    defines += [ "DISABLE_ALL_CODECS" ]
++  }
++  if (ffmpeg_branding == "Microsoft") {
++    defines += [ "DISABLE_VPX_CODECS" ]
++  }
+ }
+ 
+ # Internal grouping of the configs necessary to support sub-folders having their
+diff --git a/media/base/mime_util_internal.cc b/media/base/mime_util_internal.cc
+index 30347811de02d2251df0b39153b483b9a39dc3e1..840e3e791e854c5ba7d0d4615d05f8e217b9326d 100644
+--- a/media/base/mime_util_internal.cc
++++ b/media/base/mime_util_internal.cc
+@@ -275,7 +275,9 @@ SupportsType MimeUtil::AreSupportedCodecs(
+ }
+ 
+ void MimeUtil::InitializeMimeTypeMaps() {
++#if !defined(DISABLE_ALL_CODECS)
+   AddSupportedMediaFormats();
++#endif
+ }
+ 
+ // Each call to AddContainerWithCodecs() contains a media type
+@@ -907,6 +909,13 @@ SupportsType MimeUtil::IsCodecSupported(const std::string& mime_type_lower_case,
+     }
+   }
+ 
++#if defined(DISABLE_VPX_CODECS)
++  // Report VP9 and VP8 as unsupported codecs
++  if (codec == MimeUtil::VP9 || codec == MimeUtil::VP8) {
++    return IsNotSupported;
++  }
++#endif
++
+ #if defined(OS_ANDROID)
+   // TODO(chcunningham): Delete this. Android platform support should be
+   // handled by (android specific) media::IsSupportedVideoType() above.

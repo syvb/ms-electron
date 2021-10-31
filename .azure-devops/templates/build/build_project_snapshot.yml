@@ -1,0 +1,15 @@
+# Build a snapshot of the project's sources.
+
+parameters:
+  _flavour: electron
+
+jobs:
+- template: ../multi_job/build_project_snapshot.yml
+  parameters:
+    flavour: ${{ parameters._flavour }}
+
+- template: ../multi_job/build_electron_from_snapshot.yml
+  parameters:
+    flavour: ${{ parameters._flavour }}
+
+# TODO(alkuzmin): Compare results of regular builds and build from snapshots.

@@ -1,0 +1,33 @@
+# Configure Git as Chromium requires it.
+# Check links to Chromium build instructions for every platform below.
+
+parameters:
+- name: platform
+  type: string
+  values: ['linux', 'mac', 'mas', 'windows']
+
+steps:
+# http://commondatastorage.googleapis.com/chrome-infra-docs/flat/depot_tools/docs/html/depot_tools_tutorial.html
+- script: |
+    git config --global core.autocrlf false
+    git config --global core.filemode false
+  displayName: Configure Git
+
+# https://chromium.googlesource.com/chromium/src/+/HEAD/docs/linux_build_instructions.md
+# There are no Linux-specific requirements at the moment.
+
+# https://chromium.googlesource.com/chromium/src/+/HEAD/docs/mac_build_instructions.md
+- ${{ if in(parameters.platform, 'mac', 'mas') }}:
+  - script: |
+      git config --global core.precomposeUnicode true
+    displayName: Configure Git on Mac
+
+# https://chromium.googlesource.com/chromium/src/+/HEAD/docs/windows_build_instructions.md
+# There are no Windows-specific requirements at the moment.
+# Let's set "core.longpaths true" just in case.
+- ${{ if eq(parameters.platform, 'windows') }}:
+  - script: |
+      git config --global core.longpaths true
+    displayName: Configure Git on Windows
+
+- template: configure_git_access_to_domoreexp.yml

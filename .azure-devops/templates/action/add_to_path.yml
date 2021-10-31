@@ -1,0 +1,40 @@
+parameters:
+- name: directory
+  type: string
+- name: name  # Human-friendly name of the thing you're adding to PATH.
+  type: string
+- name: platform
+  type: string
+  values: ['linux', 'mac', 'mas', 'windows']
+- name: prepend
+  type: boolean
+  default: false
+
+steps:
+# TODO(alkuzmin): Use one task for all three platforms if possible.
+
+- ${{ if eq(parameters.prepend, true) }}:
+  - ${{ if in(parameters.platform, 'linux', 'mac', 'mas') }}:
+    - bash: |
+        _PATH="${{ parameters.directory }}:$PATH"
+        echo "##vso[task.setvariable variable=PATH]$_PATH"
+      displayName: Prepend ${{ parameters.name }} to PATH
+
+  - ${{ if eq(parameters.platform, 'windows') }}:
+    - powershell: |
+        $env:_PATH="${{ parameters.directory }};$env:PATH"
+        Write-Host "##vso[task.setvariable variable=PATH;]$env:_PATH";
+      displayName: Prepend ${{ parameters.name }} to PATH
+
+- ${{ if eq(parameters.prepend, false) }}:
+  - ${{ if in(parameters.platform, 'linux', 'mac', 'mas') }}:
+    - bash: |
+        _PATH="$PATH:${{ parameters.directory }}"
+        echo "##vso[task.setvariable variable=PATH]$_PATH"
+      displayName: Append ${{ parameters.name }} to PATH
+
+  - ${{ if eq(parameters.platform, 'windows') }}:
+    - powershell: |
+        $env:_PATH="$env:PATH;${{ parameters.directory }}"
+        Write-Host "##vso[task.setvariable variable=PATH;]$env:_PATH";
+      displayName: Append ${{ parameters.name }} to PATH

@@ -1,0 +1,134 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Milan Burda <milan.burda@gmail.com>
+Date: Wed, 21 Oct 2020 04:55:06 +0200
+Subject: feat: add net.online / net.isOnline() (#21004)
+
+Backport: https://github.com/electron/electron/pull/21004
+
+diff --git a/docs/api/net.md b/docs/api/net.md
+index 43ebc3e0cd3aeb245d361ac108e3f6a1b12318a6..84ec3627436337946cd31987a49acee1fb7fb227 100644
+--- a/docs/api/net.md
++++ b/docs/api/net.md
+@@ -8,7 +8,7 @@ The `net` module is a client-side API for issuing HTTP(S) requests. It is
+ similar to the [HTTP](https://nodejs.org/api/http.html) and
+ [HTTPS](https://nodejs.org/api/https.html) modules of Node.js but uses
+ Chromium's native networking library instead of the Node.js implementation,
+-offering better support for web proxies.
++offering better support for web proxies. It also supports checking network status.
+ 
+ The following is a non-exhaustive list of why you may consider using the `net`
+ module instead of the native Node.js modules:
+@@ -62,3 +62,25 @@ Creates a [`ClientRequest`](./client-request.md) instance using the provided
+ `options` which are directly forwarded to the `ClientRequest` constructor.
+ The `net.request` method would be used to issue both secure and insecure HTTP
+ requests according to the specified protocol scheme in the `options` object.
++
++### `net.isOnline()`
++
++Returns `Boolean` - Whether there is currently internet connection.
++
++A return value of `false` is a pretty strong indicator that the user
++won't be able to connect to remote sites. However, a return value of
++`true` is inconclusive; even if some link is up, it is uncertain
++whether a particular connection attempt to a particular remote site
++will be successful.
++
++## Properties
++
++### `net.online` _Readonly_
++
++A `Boolean` property. Whether there is currently internet connection.
++
++A return value of `false` is a pretty strong indicator that the user
++won't be able to connect to remote sites. However, a return value of
++`true` is inconclusive; even if some link is up, it is uncertain
++whether a particular connection attempt to a particular remote site
++will be successful.
+diff --git a/lib/browser/api/net.ts b/lib/browser/api/net.ts
+index 6803968b63910aceaf82f0b01cfdbc5f212f0167..c9fcf3c25d24e535c0dfe9db3b0703305836305b 100644
+--- a/lib/browser/api/net.ts
++++ b/lib/browser/api/net.ts
+@@ -2,7 +2,7 @@ import * as url from 'url';
+ import { Readable, Writable } from 'stream';
+ import { app } from 'electron';
+ import { ClientRequestConstructorOptions, UploadProgress } from 'electron/main';
+-const { net, Net, isValidHeaderName, isValidHeaderValue, createURLLoader } = process.electronBinding('net');
++const { net, Net, isOnline, isValidHeaderName, isValidHeaderValue, createURLLoader } = process.electronBinding('net');
+ 
+ const kSupportedProtocols = new Set(['http:', 'https:']);
+ 
+@@ -489,5 +489,10 @@ Net.prototype.request = function (options: ClientRequestConstructorOptions | str
+ };
+ 
+ net.ClientRequest = ClientRequest;
++net.isOnline = isOnline;
++
++Object.defineProperty(net, 'online', {
++  get: () => isOnline()
++});
+ 
+ module.exports = net;
+diff --git a/shell/browser/api/electron_api_net.cc b/shell/browser/api/electron_api_net.cc
+index 4382ebe3c4ff5e0040377ebb337445cb6818bad8..12e0f533af5f994e9204b07e311835957ac911a0 100644
+--- a/shell/browser/api/electron_api_net.cc
++++ b/shell/browser/api/electron_api_net.cc
+@@ -7,6 +7,7 @@
+ #include <string>
+ 
+ #include "gin/handle.h"
++#include "net/base/network_change_notifier.h"
+ #include "services/network/public/cpp/features.h"
+ #include "shell/browser/api/electron_api_url_loader.h"
+ #include "shell/common/gin_helper/dictionary.h"
+@@ -41,6 +42,10 @@ void Net::BuildPrototype(v8::Isolate* isolate,
+ 
+ namespace {
+ 
++bool IsOnline() {
++  return !net::NetworkChangeNotifier::IsOffline();
++}
++
+ bool IsValidHeaderName(std::string header_name) {
+   return net::HttpUtil::IsValidHeaderName(header_name);
+ }
+@@ -62,6 +67,7 @@ void Initialize(v8::Local<v8::Object> exports,
+   dict.Set("net", Net::Create(isolate));
+   dict.Set("Net",
+            Net::GetConstructor(isolate)->GetFunction(context).ToLocalChecked());
++  dict.SetMethod("isOnline", &IsOnline);
+   dict.SetMethod("isValidHeaderName", &IsValidHeaderName);
+   dict.SetMethod("isValidHeaderValue", &IsValidHeaderValue);
+   dict.SetMethod("createURLLoader", &SimpleURLLoaderWrapper::Create);
+diff --git a/spec-main/api-net-spec.ts b/spec-main/api-net-spec.ts
+index 5c5a2e1b334c64b8e18605d4f226fae81cf63ab7..d6a205a5db0380e81a392b008ae641b8db960aa0 100644
+--- a/spec-main/api-net-spec.ts
++++ b/spec-main/api-net-spec.ts
+@@ -1402,6 +1402,16 @@ describe('net module', () => {
+     });
+   });
+ 
++  describe('net.isOnline', () => {
++    it('getter returns boolean', () => {
++      expect(net.isOnline()).to.be.a('boolean');
++    });
++
++    it('property returns boolean', () => {
++      expect(net.online).to.be.a('boolean');
++    });
++  });
++
+   describe('Stability and performance', () => {
+     it('should free unreferenced, never-started request objects without crash', (done) => {
+       net.request('https://test');
+diff --git a/typings/internal-ambient.d.ts b/typings/internal-ambient.d.ts
+index b6c3990dd708f31ae182b10a6f1d4d402e45e4f0..7c5caae24007245df1fc32ec3bfc71e5e1146f0a 100644
+--- a/typings/internal-ambient.d.ts
++++ b/typings/internal-ambient.d.ts
+@@ -104,6 +104,7 @@ declare namespace NodeJS {
+     electronBinding(name: 'command_line'): Electron.CommandLine;
+     electronBinding(name: 'desktop_capturer'): { createDesktopCapturer(): ElectronInternal.DesktopCapturer };
+     electronBinding(name: 'net'): {
++      isOnline(): boolean;
+       isValidHeaderName: (headerName: string) => boolean;
+       isValidHeaderValue: (headerValue: string) => boolean;
+       Net: any;

@@ -1,0 +1,15 @@
+# https://domoreexp.visualstudio.com/Teamspace/_build?definitionId=2886
+#
+# Install an Azure Pipelines agent on an Azure VM.
+
+trigger: none
+
+parameters:
+- name: name
+  displayName: A virtual machine to use
+  type: string
+
+jobs:
+- template: templates/job/install_azure_pipelines_agent.yml
+  parameters:
+    name: ${{ parameters.name }}

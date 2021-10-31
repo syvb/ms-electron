@@ -1,0 +1,2 @@
+common_gypi_for_node_modules_symbols.patch
+restrict-nodejs-module-search-path.patch

@@ -1,0 +1,22 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Aleksei Kuzmin <alkuzmin@microsoft.com>
+Date: Wed, 9 Jan 2019 13:06:22 +0100
+Subject: build: use linux sysroots from an internal storage
+
+Microsoft patch
+
+diff --git a/build/linux/sysroot_scripts/install-sysroot.py b/build/linux/sysroot_scripts/install-sysroot.py
+index 45be431c4f36d6068148646a8cf8cb8f0aecc605..0b9e37107012bea6e48f48b56e32eb775e3d5a6d 100755
+--- a/build/linux/sysroot_scripts/install-sysroot.py
++++ b/build/linux/sysroot_scripts/install-sysroot.py
+@@ -40,8 +40,8 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+ SRC_DIR = os.path.dirname(os.path.dirname(os.path.dirname(SCRIPT_DIR)))
+ SYSTOORS_CONFIG_DIR = os.path.join(SRC_DIR, 'electron', 'script')
+ 
+-URL_PREFIX = 'http://s3.amazonaws.com'
+-URL_PATH = 'electronjs-sysroots/toolchain'
++URL_PREFIX = 'https://dropsskypeelectron.blob.core.windows.net'
++URL_PATH = 'chrome-linux-sysroot/toolchain'
+ 
+ VALID_ARCHS = ('arm', 'arm64', 'i386', 'amd64', 'mips', 'mips64el')
+ 

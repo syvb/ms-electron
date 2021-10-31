@@ -1,0 +1,31 @@
+parameters:
+  _configs:
+  - name: depot_tools
+    path: configs/mirror_repos/depot_tools.json
+  - name: github/electron/electron
+    path: configs/mirror_repos/electron_electron.json
+  - name: github/nodejs/node
+    path: configs/mirror_repos/nodejs_node.json
+  _platform: linux
+
+jobs:
+- job: mirror_external_repos
+  displayName: mirror external repos
+  pool:
+    vmImage: ubuntu-18.04
+  steps:
+  - template: ../action/configure_git.yml
+    parameters:
+      platform: ${{ parameters._platform }}
+
+  - template: ../action/checkout_self.yml
+
+  - ${{ each config in parameters._configs }}:
+    - task: PythonScript@0
+      displayName: Mirror ${{ config.name }} repo
+      inputs:
+        scriptSource: filePath
+        scriptPath: scripts/mirror_git_repo.py
+        arguments: >
+          --config ${{ config.path }}
+        failOnStderr: false  # Should be ok.

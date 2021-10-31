@@ -1,0 +1,37 @@
+# Build Electron on all supported platforms.
+
+parameters:
+- name: buildType
+  type: string
+  values: ['testing', 'release']
+- name: flavour
+  type: string
+  values: ['electron', 'media', 'teams', 'vscode']
+- name: useCompilerCache
+  type: boolean
+  default: false
+- name: _configs
+  type: object
+  default:
+  - platform: linux
+    arches:
+    - x64
+  - platform: mac
+    arches:
+    - x64
+  - platform: windows
+    arches:
+    - arm64
+    - x64
+    - x86
+
+jobs:
+- ${{ each config in parameters._configs }}:
+  - ${{ each arch in config.arches }}:
+    - template: ../job/build_electron.yml
+      parameters:
+        arch: ${{ arch }}
+        buildType: ${{ parameters.buildType }}
+        flavour: ${{ parameters.flavour }}
+        platform: ${{ config.platform }}
+        useCompilerCache: ${{ parameters.useCompilerCache }}

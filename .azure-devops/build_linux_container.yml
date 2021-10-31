@@ -1,0 +1,15 @@
+# https://domoreexp.visualstudio.com/Teamspace/_build?definitionId=3025
+#
+# Build a Linux container to be used for Electron builds.
+
+trigger: none
+
+parameters:
+- name: commit
+  displayName: Revision of the Electron's "build-images"
+  type: string
+
+jobs:
+- template: templates/job/build_linux_container.yml
+  parameters:
+    commit: ${{ parameters.commit }}

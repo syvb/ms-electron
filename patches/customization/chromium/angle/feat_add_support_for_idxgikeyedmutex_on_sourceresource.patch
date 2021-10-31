@@ -1,0 +1,27 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Milan Burda <miburda@microsoft.com>
+Date: Fri, 24 Jul 2020 23:57:19 +0200
+Subject: feat: add support for IDXGIKeyedMutex on sourceResource
+
+Microsoft patch
+
+diff --git a/src/libANGLE/renderer/d3d/d3d11/Renderer11.cpp b/src/libANGLE/renderer/d3d/d3d11/Renderer11.cpp
+index cda38c47d2fea52e6e90845ba9f97fc23ef8ba7a..237984a2bae9c28598120707dee3a7c13828ca05 100644
+--- a/src/libANGLE/renderer/d3d/d3d11/Renderer11.cpp
++++ b/src/libANGLE/renderer/d3d/d3d11/Renderer11.cpp
+@@ -2578,6 +2578,15 @@ angle::Result Renderer11::copyTexture(const gl::Context *context,
+             ANGLE_TRY(GetTextureD3DResourceFromStorageOrImage(context, sourceD3D, sourceIndex,
+                                                               &sourceResource, &sourceSubresource));
+ 
++            Microsoft::WRL::ComPtr<IDXGIKeyedMutex> sharedMutex;
++            Microsoft::WRL::ComPtr<ID3D11Resource> texture(sourceResource->get());
++            texture.As(&sharedMutex);
++            if (sharedMutex) sharedMutex->AcquireSync(0, 5000);
++            auto unlocker = [](IDXGIKeyedMutex* mutex) {
++                 if (mutex) mutex->ReleaseSync(0);
++            };
++            std::unique_ptr<IDXGIKeyedMutex, decltype(unlocker)> _(sharedMutex.Get(), unlocker);
++
+             gl::ImageIndex destIndex = gl::ImageIndex::MakeFromTarget(destTarget, destLevel, 1);
+ 
+             UINT destSubresource = 0;

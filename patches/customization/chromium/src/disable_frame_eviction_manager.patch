@@ -1,0 +1,40 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Milan Burda <miburda@microsoft.com>
+Date: Mon, 1 Jun 2020 18:38:13 +0200
+Subject: feat: add --ms-disable-frame-eviction-manager command-line switch
+
+Microsoft patch
+
+diff --git a/components/viz/client/frame_eviction_manager.cc b/components/viz/client/frame_eviction_manager.cc
+index 48056fdc03898bac2ee5b7d75e834df1d7ea171a..09db62c4cd456d447cec4adc48f7f26b768e5132 100644
+--- a/components/viz/client/frame_eviction_manager.cc
++++ b/components/viz/client/frame_eviction_manager.cc
+@@ -8,6 +8,7 @@
+ 
+ #include "base/bind.h"
+ #include "base/check_op.h"
++#include "base/command_line.h"
+ #include "base/memory/memory_pressure_listener.h"
+ #include "base/memory/memory_pressure_monitor.h"
+ #include "base/stl_util.h"
+@@ -20,6 +21,8 @@ namespace {
+ const int kModeratePressurePercentage = 50;
+ const int kCriticalPressurePercentage = 10;
+ 
++const auto* kDisableFrameEvictionManager = "ms-disable-frame-eviction-manager";
++
+ }  // namespace
+ 
+ FrameEvictionManager::ScopedPause::ScopedPause() {
+@@ -117,6 +120,11 @@ FrameEvictionManager::FrameEvictionManager()
+ }
+ 
+ void FrameEvictionManager::CullUnlockedFrames(size_t saved_frame_limit) {
++  static bool disable = base::CommandLine::ForCurrentProcess()->HasSwitch(
++      kDisableFrameEvictionManager);
++  if (disable)
++    return;
++
+   if (pause_count_) {
+     pending_unlocked_frame_limit_ = saved_frame_limit;
+     return;

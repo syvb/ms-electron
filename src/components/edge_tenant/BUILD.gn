@@ -1,0 +1,44 @@
+# Copyright (C) Microsoft Corporation. All rights reserved.
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+source_set("trv2_policy_manager") {
+  sources = [
+    "browser/trv2_policy_manager.cc",
+    "browser/trv2_policy_manager.h",
+    "browser/trv2_update_manager.cc",
+    "browser/trv2_update_manager.h",
+  ]
+  if (is_win) {
+    sources += [
+      "//microsoft/src/base/manual_delay_load.cc",
+      "//microsoft/src/base/manual_delay_load.h",
+      "//microsoft/src/base/win/scoped_co_mem.h",
+      "browser/trv2_plugin_win.cc",
+      "browser/trv2_plugin_win.h",
+      "browser/trv2_policy_manager_win.cc",
+      "browser/trv2_policy_manager_win.h",
+      "browser/trv2_policy_watcher_win.cc",
+      "browser/trv2_policy_watcher_win.h",
+      "browser/trv2_utilities_win.cc",
+      "browser/trv2_utilities_win.h",
+      "browser/trv2_watchers_win.cc",
+      "browser/trv2_watchers_win.h",
+    ]
+  }
+
+  deps = [
+    "//base",
+    "//microsoft/src/components/edge_tenant/common:trv2",
+    "//mojo/public/cpp/bindings",
+    "//services/network/public/cpp:cpp",
+    "//url",
+  ]
+}
+
+source_set("edge_tenant") {
+  public_deps = [
+    ":trv2_policy_manager",
+    "//microsoft/src/components/edge_tenant/common:trv2",
+  ]
+}

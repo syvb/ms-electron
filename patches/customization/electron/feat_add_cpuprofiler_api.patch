@@ -1,0 +1,111 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Milan Burda <miburda@microsoft.com>
+Date: Tue, 21 Jan 2020 15:45:50 +0100
+Subject: feat: add CpuProfiler API
+
+Microsoft patch
+
+diff --git a/.eslintrc.json b/.eslintrc.json
+index 5fe7f2fb0b488ce8f9c9f967adbdeacdc29d24fd..9735c03d576eaebda9c48b86c4e2090a62bf4125 100644
+--- a/.eslintrc.json
++++ b/.eslintrc.json
+@@ -32,6 +32,7 @@
+     "ENABLE_DESKTOP_CAPTURER": "readonly",
+     "ENABLE_REMOTE_MODULE": "readonly",
+     "ENABLE_VIEWS_API": "readonly",
++    "MICROSOFT_ENABLE_CPU_PROFILER": "readonly",
+     "MICROSOFT_ENABLE_REMOTE_HOST": "readonly",
+     "BigInt": "readonly"
+   },
+diff --git a/build/webpack/webpack.config.base.js b/build/webpack/webpack.config.base.js
+index 809c5adb18e08413adbe861960c7cc07efa2e5d1..39fea07f939ea1472e05a2384a75475340cca9da 100644
+--- a/build/webpack/webpack.config.base.js
++++ b/build/webpack/webpack.config.base.js
+@@ -65,6 +65,12 @@ if (defines['ENABLE_VIEWS_API'] === 'false') {
+   )
+ }
+ 
++if (defines['MICROSOFT_ENABLE_CPU_PROFILER'] === 'false') {
++  ignoredModules.push(
++    '@microsoft/lib/common/api/cpu-profiler'
++  )
++}
++
+ if (defines['MICROSOFT_ENABLE_REMOTE_HOST'] === 'false') {
+   ignoredModules.push(
+     '@microsoft/lib/renderer/api/remote-client',
+diff --git a/lib/common/api/module-list.ts b/lib/common/api/module-list.ts
+index 1c9d459cfa5c6cd76eebdbf20831cf32f155ba7b..007e4ce73ff6ec589fbaf48667d4a46fbb1a5d64 100644
+--- a/lib/common/api/module-list.ts
++++ b/lib/common/api/module-list.ts
+@@ -5,3 +5,9 @@ export const commonModuleList: ElectronInternal.ModuleEntry[] = [
+   // The internal modules, invisible unless you know their names.
+   { name: 'deprecate', loader: () => require('./deprecate'), private: true }
+ ];
++
++if (BUILDFLAG(MICROSOFT_ENABLE_CPU_PROFILER)) {
++  commonModuleList.push(
++    { name: 'CpuProfiler', loader: () => require('@microsoft/lib/common/api/cpu-profiler.js') }
++  );
++}
+diff --git a/lib/sandboxed_renderer/api/module-list.ts b/lib/sandboxed_renderer/api/module-list.ts
+index 4ed792e0dfdeb647d178c19afbc4734c58cf4f5b..58fb213f1fefecd8c49131e32b1b9f650aeb9f6f 100644
+--- a/lib/sandboxed_renderer/api/module-list.ts
++++ b/lib/sandboxed_renderer/api/module-list.ts
+@@ -41,6 +41,13 @@ if (BUILDFLAG(ENABLE_REMOTE_MODULE) && process.isRemoteModuleEnabled) {
+   });
+ }
+ 
++if (BUILDFLAG(MICROSOFT_ENABLE_CPU_PROFILER)) {
++  moduleList.push({
++    name: 'CpuProfiler',
++    loader: () => require('@microsoft/lib/common/api/cpu-profiler.js')
++  });
++}
++
+ if (BUILDFLAG(MICROSOFT_ENABLE_REMOTE_HOST)) {
+   moduleList.push({
+     name: 'remoteClient',
+diff --git a/shell/common/api/features.cc b/shell/common/api/features.cc
+index fec03c81741d4ca739ba60a90e1f95772d3cfc96..b810e193e0f784edf6b6e54b153cffe262dd4e1c 100644
+--- a/shell/common/api/features.cc
++++ b/shell/common/api/features.cc
+@@ -70,6 +70,10 @@ bool IsComponentBuild() {
+ #endif
+ }
+ 
++bool IsCpuProfilerEnabled() {
++  return BUILDFLAG(MICROSOFT_ENABLE_CPU_PROFILER);
++}
++
+ bool IsRemoteHostEnabled() {
+   return BUILDFLAG(MICROSOFT_ENABLE_REMOTE_HOST);
+ }
+@@ -95,6 +99,7 @@ void Initialize(v8::Local<v8::Object> exports,
+   dict.SetMethod("isExtensionsEnabled", &IsExtensionsEnabled);
+   dict.SetMethod("isWinDarkModeWindowUiEnabled", &IsWinDarkModeWindowUiEnabled);
+   // microsoft
++  dict.SetMethod("isCpuProfilerEnabled", &IsCpuProfilerEnabled);
+   dict.SetMethod("isRemoteHostEnabled", &IsRemoteHostEnabled);
+ }
+ 
+diff --git a/typings/internal-ambient.d.ts b/typings/internal-ambient.d.ts
+index 4a260747de13a6bf3234e36e804370593f8dd8bf..ed7c110e5518b9d74ff7db5eb6a411030a3f9a52 100644
+--- a/typings/internal-ambient.d.ts
++++ b/typings/internal-ambient.d.ts
+@@ -6,6 +6,7 @@ declare const ENABLE_DESKTOP_CAPTURER: boolean;
+ declare const ENABLE_REMOTE_MODULE: boolean;
+ declare const ENABLE_VIEWS_API: boolean;
+ // microsoft
++declare const MICROSOFT_ENABLE_CPU_PROFILER: boolean;
+ declare const MICROSOFT_ENABLE_REMOTE_HOST: boolean;
+ 
+ declare namespace NodeJS {
+@@ -25,6 +26,7 @@ declare namespace NodeJS {
+     isComponentBuild(): boolean;
+     isWinDarkModeWindowUiEnabled(): boolean;
+     // microsoft
++    isCpuProfilerEnabled(): boolean;
+     isRemoteHostEnabled(): boolean;
+   }
+ 

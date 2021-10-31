@@ -1,0 +1,454 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Milan Burda <miburda@microsoft.com>
+Date: Wed, 10 Oct 2018 18:55:46 +0000
+Subject: feat: add HTMLSkypeVideoElement / <skypevideo> tag
+
+Microsoft patch
+
+diff --git a/cc/layers/video_layer_impl.cc b/cc/layers/video_layer_impl.cc
+index 4441f94fcfb9eea2d48febf81fd98f5b05cbf6dc..73120750d8e46b5f301a715ab7a04752eea987b4 100644
+--- a/cc/layers/video_layer_impl.cc
++++ b/cc/layers/video_layer_impl.cc
+@@ -153,6 +153,11 @@ void VideoLayerImpl::AppendQuads(viz::RenderPass* render_pass,
+       break;
+   }
+ 
++  if (frame_->mirror) {
++    transform.RotateAboutYAxis(180.0);
++    transform.Translate(-rotated_size.width(), 0);
++  }
++
+   gfx::Rect quad_rect(rotated_size);
+   Occlusion occlusion_in_video_space =
+       draw_properties()
+diff --git a/content/common/BUILD.gn b/content/common/BUILD.gn
+index 64f33a3027b830df22b5226c9b468f2523b01b06..1ab59b7c0ada7e0b14832d9738cba9d8562d5370 100644
+--- a/content/common/BUILD.gn
++++ b/content/common/BUILD.gn
+@@ -426,7 +426,10 @@ group("for_content_tests") {
+ 
+ mojom("mojo_bindings") {
+   # This interface is internal to content.
+-  visibility = [ "//content/*" ]
++  visibility = [
++    "//content/*",
++    "//microsoft/src/media_blink/*",
++  ]
+ 
+   # indexed_db.mojom used a native typemap that was not available in Java.
+   # indexed_db.mojom was removed in an earlier commit.  This should be removed
+diff --git a/content/renderer/media/media_factory.cc b/content/renderer/media/media_factory.cc
+index 9ef138482869127fed34b1ce7897b8d08f2aabd2..94139869ee76f150c5204b3cd6c3af737ea3af2f 100644
+--- a/content/renderer/media/media_factory.cc
++++ b/content/renderer/media/media_factory.cc
+@@ -105,6 +105,8 @@
+ #include "media/remoting/remoting_renderer_factory.h"  // nogncheck
+ #endif
+ 
++#include "microsoft/src/media_blink/skypevideo_webmediaplayer.h"
++
+ namespace {
+ class FrameFetchContext : public media::ResourceFetchContext {
+  public:
+@@ -348,6 +350,12 @@ blink::WebMediaPlayer* MediaFactory::CreateMediaPlayer(
+   if (!render_thread)
+     return nullptr;
+ 
++  GURL gurl = url;
++  if (gurl.SchemeIs("skypevideo")) {
++    return new microsoft::SkypeVideoWebMediaPlayer(
++        client, gurl, render_thread->compositor_task_runner());
++  }
++
+   scoped_refptr<media::SwitchableAudioRendererSink> audio_renderer_sink =
+       AudioDeviceFactory::NewSwitchableAudioRendererSink(
+           blink::WebAudioDeviceSourceType::kMediaElement,
+diff --git a/media/base/video_frame.cc b/media/base/video_frame.cc
+index a069012e49da90d1664b9924f1b1d50322b4f8b4..f3a5c301b88597b9ddd01bb04761ef294fabaabb 100644
+--- a/media/base/video_frame.cc
++++ b/media/base/video_frame.cc
+@@ -28,6 +28,8 @@
+ #include "ui/gfx/geometry/point.h"
+ #include "ui/gfx/gpu_memory_buffer.h"
+ 
++#include "microsoft/src/skype_video/shared_memory.h"
++
+ namespace media {
+ 
+ namespace {
+diff --git a/media/base/video_frame.h b/media/base/video_frame.h
+index 51515be694a45830157dde56c6835277fba6c8dd..e6f8a5ea1a03b7fd2ad61cf71607fcc6cde92ca9 100644
+--- a/media/base/video_frame.h
++++ b/media/base/video_frame.h
+@@ -48,6 +48,10 @@ namespace gfx {
+ class GpuMemoryBuffer;
+ }
+ 
++namespace microsoft {
++class SharedMemory;
++}
++
+ namespace media {
+ 
+ class MEDIA_EXPORT VideoFrame : public base::RefCountedThreadSafe<VideoFrame> {
+@@ -575,6 +579,10 @@ class MEDIA_EXPORT VideoFrame : public base::RefCountedThreadSafe<VideoFrame> {
+     ycbcr_info_ = ycbcr_info;
+   }
+ 
++  bool mirror = false;
++  std::shared_ptr<const microsoft::SharedMemory> buffer;
++  std::string buffer_name;
++
+  protected:
+   friend class base::RefCountedThreadSafe<VideoFrame>;
+ 
+diff --git a/media/blink/BUILD.gn b/media/blink/BUILD.gn
+index fa0a3546689db15e20bbd6d57d7e55a6d7f1e971..927d8c1003bf6f18a7cc50fcdfdce3ff7f9cb3fe 100644
+--- a/media/blink/BUILD.gn
++++ b/media/blink/BUILD.gn
+@@ -93,6 +93,7 @@ component("blink") {
+     "//ui/gfx/geometry",
+     "//url",
+   ]
++  deps += [ "//microsoft/src/media_blink" ]
+ 
+   if (media_use_ffmpeg || !is_android) {
+     sources += [
+diff --git a/third_party/blink/public/platform/web_media_player.h b/third_party/blink/public/platform/web_media_player.h
+index 6c7a05700d19703022282be74fd4b05676be7383..630750e2adc632fa1741183223cb0ff547720272 100644
+--- a/third_party/blink/public/platform/web_media_player.h
++++ b/third_party/blink/public/platform/web_media_player.h
+@@ -56,6 +56,7 @@ class GLES2Interface;
+ 
+ namespace blink {
+ 
++class SkypeMediaPlayer;
+ class WebContentDecryptionModule;
+ class WebMediaPlayerSource;
+ class WebString;
+@@ -471,6 +472,8 @@ class WebMediaPlayer {
+     return nullptr;
+   }
+ 
++  virtual SkypeMediaPlayer* GetSkypeMediaPlayer() { return nullptr; }
++
+   virtual base::WeakPtr<WebMediaPlayer> AsWeakPtr() = 0;
+ };
+ 
+diff --git a/third_party/blink/public/platform/web_media_player_client.h b/third_party/blink/public/platform/web_media_player_client.h
+index b2616e6925c76bc1264959d1770156c2f8a13e51..597f9260ed37c5d85d7b91bd9d051ddb032c9f1b 100644
+--- a/third_party/blink/public/platform/web_media_player_client.h
++++ b/third_party/blink/public/platform/web_media_player_client.h
+@@ -42,6 +42,7 @@ class Layer;
+ 
+ namespace blink {
+ 
++class SkypeMediaPlayerClient;
+ class WebInbandTextTrack;
+ class WebMediaSource;
+ class WebRemotePlaybackClient;
+@@ -199,6 +200,10 @@ class BLINK_PLATFORM_EXPORT WebMediaPlayerClient {
+   // learning experiment.
+   virtual Features GetFeatures() = 0;
+ 
++  virtual SkypeMediaPlayerClient* GetSkypeMediaPlayerClient() {
++    return nullptr;
++  }
++
+  protected:
+   ~WebMediaPlayerClient() = default;
+ };
+diff --git a/third_party/blink/renderer/core/BUILD.gn b/third_party/blink/renderer/core/BUILD.gn
+index b6915f3501150bc2d4fca79c21fb358d01f9f88e..8c584010f2bce36ccc80b4a2bd5a9d800c949a35 100644
+--- a/third_party/blink/renderer/core/BUILD.gn
++++ b/third_party/blink/renderer/core/BUILD.gn
+@@ -19,6 +19,7 @@ import("//third_party/blink/renderer/platform/platform_generated.gni")
+ import("//third_party/protobuf/proto_library.gni")
+ 
+ visibility = [
++  "//microsoft/src/third_party/blink/renderer/*",
+   "//third_party/blink/renderer/*",
+   "//third_party/blink/public/*",
+ ]
+@@ -31,7 +32,11 @@ config("config") {
+ }
+ 
+ config("core_include_dirs") {
+-  include_dirs = []
++  include_dirs = [
++    "..",
++    "//microsoft/src",
++    "$root_gen_dir/third_party/blink/renderer",
++  ]
+ }
+ 
+ import("//build/config/pch.gni")
+@@ -222,6 +227,8 @@ component("core") {
+     "//third_party/blink/public/common",
+     "//third_party/blink/renderer/platform",
+     "//third_party/blink/renderer/platform/wtf",
++    "//microsoft/src/third_party/blink/renderer/core:events",
++    "//microsoft/src/third_party/blink/renderer/core:html",
+   ]
+ 
+   public_configs = [ ":core_include_dirs" ]
+@@ -361,6 +368,10 @@ generate_event_interfaces("core_event_interfaces") {
+     "mojo/test/mojo_interface_request_event.idl",
+   ]
+ 
++  sources += [
++    "//microsoft/src/third_party/blink/renderer/core/events/log_event.idl"
++  ]
++
+   output_file = "core/event_interface_names.json5"
+ }
+ 
+diff --git a/third_party/blink/renderer/core/core_idl_files.gni b/third_party/blink/renderer/core/core_idl_files.gni
+index 8c3cfc4dcf78b227e27cd852a0e869c89be2a954..e7baf23f5e722d06194855992f560f97c80e21db 100644
+--- a/third_party/blink/renderer/core/core_idl_files.gni
++++ b/third_party/blink/renderer/core/core_idl_files.gni
+@@ -2,6 +2,7 @@
+ # Use of this source code is governed by a BSD-style license that can be
+ # found in the LICENSE file.
+ 
++import("//microsoft/src/third_party/blink/renderer/core/core_idl_files.gni")
+ import("//third_party/blink/renderer/bindings/bindings.gni")
+ import("//third_party/blink/renderer/core/core.gni")
+ 
+@@ -34,7 +35,7 @@ core_global_constructors_generated_idl_files =
+         core_global_constructors_original_interface_basenames,
+         [ "$blink_core_output_dir/{{source_name_part}}_core_constructors.idl" ])
+ 
+-core_idl_files =
++core_idl_files +=
+     get_path_info([
+                     "aom/accessible_node.idl",
+                     "aom/accessible_node_list.idl",
+diff --git a/third_party/blink/renderer/core/events/event_type_names.json5 b/third_party/blink/renderer/core/events/event_type_names.json5
+index 0bfeff2a077902a12f11e5662f396faddf3a14c8..ad2d802fe48fc0258f3c5b0bb8ea0eeb378a86ee 100644
+--- a/third_party/blink/renderer/core/events/event_type_names.json5
++++ b/third_party/blink/renderer/core/events/event_type_names.json5
+@@ -187,6 +187,9 @@
+     "mouseover",
+     "mouseup",
+     "mousewheel",
++    "msLogEvent",
++    "msRendererSizeChanged",
++    "msBackgroundRenderingChanged",
+     "mute",
+     "negotiationneeded",
+     "nomatch",
+diff --git a/third_party/blink/renderer/core/html/html_tag_names.json5 b/third_party/blink/renderer/core/html/html_tag_names.json5
+index b85be229135325e96e69c617988459d98950748b..3f5be3c109f066dc662e54f2b0182e867443b00d 100644
+--- a/third_party/blink/renderer/core/html/html_tag_names.json5
++++ b/third_party/blink/renderer/core/html/html_tag_names.json5
+@@ -345,6 +345,10 @@
+       name: "shadow",
+       interfaceName: "HTMLShadowElement",
+     },
++    {
++      name: "skypevideo",
++      interfaceName: "HTMLSkypeVideoElement",
++    },
+     {
+       name: "p",
+       interfaceName: "HTMLParagraphElement",
+diff --git a/third_party/blink/renderer/core/html/media/html_media_element.cc b/third_party/blink/renderer/core/html/media/html_media_element.cc
+index 1bcde9e6393f970c6650ed9cab830e443e1efa83..9d62251dcaed78c658da0423c54e0337b36519c4 100644
+--- a/third_party/blink/renderer/core/html/media/html_media_element.cc
++++ b/third_party/blink/renderer/core/html/media/html_media_element.cc
+@@ -416,6 +416,9 @@ MIMETypeRegistry::SupportsType HTMLMediaElement::GetSupportsType(
+   if (type == "application/octet-stream")
+     return MIMETypeRegistry::kIsNotSupported;
+ 
++  if (type == "application/x-skype-video")
++    return MIMETypeRegistry::kIsSupported;
++
+   // Check if stricter parsing of |contentType| will cause problems.
+   // TODO(jrummell): Either switch to ParsedContentType or remove this UMA,
+   // depending on the results reported.
+@@ -1320,6 +1323,7 @@ void HTMLMediaElement::StartPlayerLoad() {
+   web_media_player_->SetPreservesPitch(preservesPitch());
+ 
+   OnLoadStarted();
++  CheckVideoPosition();
+ }
+ 
+ void HTMLMediaElement::SetPlayerPreload() {
+@@ -3581,6 +3585,8 @@ void HTMLMediaElement::
+     audio_source_provider_.Wrap(nullptr);
+     web_media_player_.reset();
+   }
++
++  CheckVideoPosition();
+ }
+ 
+ void HTMLMediaElement::ClearMediaPlayer() {
+diff --git a/third_party/blink/renderer/core/html/media/html_media_element.h b/third_party/blink/renderer/core/html/media/html_media_element.h
+index f351646fcbc4667b03b739882bd2527c9ca5a8fc..d049635d0aa33c86e543dc9f4e45faa7203ec634 100644
+--- a/third_party/blink/renderer/core/html/media/html_media_element.h
++++ b/third_party/blink/renderer/core/html/media/html_media_element.h
+@@ -396,6 +396,8 @@ class CORE_EXPORT HTMLMediaElement
+   void ContextLifecycleStateChanged(mojom::FrameLifecycleState) override;
+   void ContextDestroyed() override;
+ 
++  virtual void CheckVideoPosition() {}
++
+   virtual void OnPlay() {}
+   virtual void OnLoadStarted() {}
+   virtual void OnLoadFinished() {}
+@@ -470,7 +472,11 @@ class CORE_EXPORT HTMLMediaElement
+   void InvokeLoadAlgorithm();
+   void InvokeResourceSelectionAlgorithm();
+   void LoadInternal();
++
++ protected:
+   void SelectMediaResource();
++
++ private:
+   void LoadResource(const WebMediaPlayerSource&, const String& content_type);
+   void StartPlayerLoad();
+   void SetPlayerPreload();
+@@ -478,7 +484,11 @@ class CORE_EXPORT HTMLMediaElement
+   void LoadSourceFromObject();
+   void LoadSourceFromAttribute();
+   void LoadNextSourceChild();
++
++ protected:
+   void ClearMediaPlayer();
++
++ private:
+   void ClearMediaPlayerAndAudioSourceProviderClientWithoutLocking();
+   bool HavePotentialSourceChild();
+   void NoneSupported(const String&);
+@@ -768,7 +778,8 @@ struct DowncastTraits<HTMLMediaElement> {
+   }
+   static bool AllowFrom(const HTMLElement& html_element) {
+     return IsA<HTMLAudioElement>(html_element) ||
+-           IsA<HTMLVideoElement>(html_element);
++           IsA<HTMLVideoElement>(html_element) ||
++           IsA<HTMLSkypeVideoElement>(html_element);
+   }
+ };
+ 
+diff --git a/third_party/blink/renderer/core/html/media/html_video_element.cc b/third_party/blink/renderer/core/html/media/html_video_element.cc
+index 28327caae489f7753935dd175eb760c8036b90b4..8875403ef0e573b282c56c6c9da63e83f4979683 100644
+--- a/third_party/blink/renderer/core/html/media/html_video_element.cc
++++ b/third_party/blink/renderer/core/html/media/html_video_element.cc
+@@ -77,8 +77,9 @@ enum VideoPersistenceControlsType {
+ 
+ }  // anonymous namespace
+ 
+-HTMLVideoElement::HTMLVideoElement(Document& document)
+-    : HTMLMediaElement(html_names::kVideoTag, document),
++HTMLVideoElement::HTMLVideoElement(const QualifiedName& tag_name,
++                                   Document& document)
++    : HTMLMediaElement(tag_name, document),
+       remoting_interstitial_(nullptr),
+       picture_in_picture_interstitial_(nullptr),
+       is_persistent_(false),
+@@ -105,6 +106,9 @@ HTMLVideoElement::HTMLVideoElement(Document& document)
+   UpdateStateIfNeeded();
+ }
+ 
++HTMLVideoElement::HTMLVideoElement(Document& document)
++    : HTMLVideoElement(html_names::kVideoTag, document) {}
++
+ void HTMLVideoElement::Trace(Visitor* visitor) const {
+   visitor->Trace(image_loader_);
+   visitor->Trace(custom_controls_fullscreen_detector_);
+diff --git a/third_party/blink/renderer/core/html/media/html_video_element.h b/third_party/blink/renderer/core/html/media/html_video_element.h
+index f5375948ea1949f3239b96e7218a7a416a7f70b3..47cdd5906835471c4652665b07a82efd631a6253 100644
+--- a/third_party/blink/renderer/core/html/media/html_video_element.h
++++ b/third_party/blink/renderer/core/html/media/html_video_element.h
+@@ -47,11 +47,10 @@ class MediaRemotingInterstitial;
+ class PictureInPictureInterstitial;
+ class VideoWakeLock;
+ 
+-class CORE_EXPORT HTMLVideoElement final
+-    : public HTMLMediaElement,
+-      public CanvasImageSource,
+-      public ImageBitmapSource,
+-      public Supplementable<HTMLVideoElement> {
++class CORE_EXPORT HTMLVideoElement : public HTMLMediaElement,
++                                     public CanvasImageSource,
++                                     public ImageBitmapSource,
++                                     public Supplementable<HTMLVideoElement> {
+   DEFINE_WRAPPERTYPEINFO();
+   USING_GARBAGE_COLLECTED_MIXIN(HTMLVideoElement);
+ 
+@@ -202,6 +201,8 @@ class CORE_EXPORT HTMLVideoElement final
+   VideoWakeLock* wake_lock_for_tests() const { return wake_lock_; }
+ 
+  protected:
++  HTMLVideoElement(const QualifiedName&, Document&);
++
+   // EventTarget overrides.
+   void AddedEventListener(const AtomicString& event_type,
+                           RegisteredEventListener&) override;
+diff --git a/third_party/blink/renderer/core/layout/layout_video.cc b/third_party/blink/renderer/core/layout/layout_video.cc
+index 53e0582f6a1b1fd0c05874fc04788eb5d9002335..962a95c72be7eaa1c6d58f04b046ed0e3f852d76 100644
+--- a/third_party/blink/renderer/core/layout/layout_video.cc
++++ b/third_party/blink/renderer/core/layout/layout_video.cc
+@@ -30,6 +30,8 @@
+ #include "third_party/blink/renderer/core/html/media/html_video_element.h"
+ #include "third_party/blink/renderer/core/paint/video_painter.h"
+ 
++#include "microsoft/src/third_party/blink/renderer/core/html/html_skype_video_element.h"
++
+ namespace blink {
+ 
+ LayoutVideo::LayoutVideo(HTMLVideoElement* video) : LayoutMedia(video) {
+@@ -140,7 +142,7 @@ void LayoutVideo::UpdateLayout() {
+ }
+ 
+ HTMLVideoElement* LayoutVideo::VideoElement() const {
+-  return To<HTMLVideoElement>(GetNode());
++  return ToHTMLVideoElementEx(GetNode());
+ }
+ 
+ void LayoutVideo::UpdateFromElement() {
+diff --git a/third_party/blink/renderer/core/paint/compositing/composited_layer_mapping.cc b/third_party/blink/renderer/core/paint/compositing/composited_layer_mapping.cc
+index 1b460151f02696b877ec48ddcadda35fb9bb55cb..8c3473858d2f763df533a850bdd8c1480be1569a 100644
+--- a/third_party/blink/renderer/core/paint/compositing/composited_layer_mapping.cc
++++ b/third_party/blink/renderer/core/paint/compositing/composited_layer_mapping.cc
+@@ -78,6 +78,8 @@
+ #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
+ #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
+ 
++#include "microsoft/src/third_party/blink/renderer/core/html/html_skype_video_element.h"
++
+ namespace blink {
+ 
+ static PhysicalRect ContentsRect(const LayoutObject& layout_object) {
+@@ -1001,7 +1003,7 @@ void CompositedLayerMapping::UpdateContentsRect() {
+ void CompositedLayerMapping::UpdateDrawsContentAndPaintsHitTest() {
+   bool in_overlay_fullscreen_video = false;
+   if (IsA<LayoutVideo>(GetLayoutObject())) {
+-    auto* video_element = To<HTMLVideoElement>(GetLayoutObject().GetNode());
++    auto* video_element = ToHTMLVideoElementEx(GetLayoutObject().GetNode());
+     if (video_element->IsFullscreen() &&
+         video_element->UsesOverlayFullscreenVideo())
+       in_overlay_fullscreen_video = true;
+diff --git a/third_party/blink/renderer/modules/media_controls/media_controls_impl.cc b/third_party/blink/renderer/modules/media_controls/media_controls_impl.cc
+index 4869190f90e57681f74f263b80df4f86cbb47feb..0de3643687027e5c862d232514d01d021698c3d4 100644
+--- a/third_party/blink/renderer/modules/media_controls/media_controls_impl.cc
++++ b/third_party/blink/renderer/modules/media_controls/media_controls_impl.cc
+@@ -96,6 +96,8 @@
+ #include "third_party/blink/renderer/platform/text/platform_locale.h"
+ #include "third_party/blink/renderer/platform/web_test_support.h"
+ 
++#include "microsoft/src/third_party/blink/renderer/core/html/html_skype_video_element.h"
++
+ namespace blink {
+ 
+ namespace {
+@@ -2125,7 +2127,7 @@ void MediaControlsImpl::OnLoadedData() {
+ }
+ 
+ HTMLVideoElement& MediaControlsImpl::VideoElement() {
+-  return *To<HTMLVideoElement>(&MediaElement());
++  return *ToHTMLVideoElementEx(&MediaElement());
+ }
+ 
+ void MediaControlsImpl::Trace(Visitor* visitor) const {

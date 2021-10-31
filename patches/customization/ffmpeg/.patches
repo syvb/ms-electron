@@ -1,0 +1,5 @@
+build_patch_the_slim_config_of_ffmpeg.patch
+build_patch_the_microsoft_config_of_ffmpeg.patch
+build_fix_ffmpeg_microsoft_config.patch
+build_fix_ffmpeg_slim_config.patch
+build_fix_ffmpeg_build_config_for_slim_and_microsoft_configs.patch

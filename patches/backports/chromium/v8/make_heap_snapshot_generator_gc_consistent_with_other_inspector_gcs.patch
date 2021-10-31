@@ -1,0 +1,31 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Ulan Degenbaev <ulan@chromium.org>
+Date: Mon, 12 Oct 2020 13:20:40 +0200
+Subject: Make heap snapshot generator GC consistent with other inspector GCs
+
+This calls Heap::CollectAllAvailableGarbage() in the heap snapshot
+generator.
+
+Bug:chromium:1113467
+Change-Id: Ia7f58893a36f11f80f1bffafcea0e73f5ec49901
+
+diff --git a/src/profiler/heap-snapshot-generator.cc b/src/profiler/heap-snapshot-generator.cc
+index 5c13d64f196067b70377ce321d5de0cb05db6ff7..d3cf12f1a2ebaadbe87a7b8e4e32facda60c1c5b 100644
+--- a/src/profiler/heap-snapshot-generator.cc
++++ b/src/profiler/heap-snapshot-generator.cc
+@@ -2028,14 +2028,7 @@ class NullContextForSnapshotScope {
+ bool HeapSnapshotGenerator::GenerateSnapshot() {
+   v8_heap_explorer_.TagGlobalObjects();
+ 
+-  // TODO(1562) Profiler assumes that any object that is in the heap after
+-  // full GC is reachable from the root when computing dominators.
+-  // This is not true for weakly reachable objects.
+-  // As a temporary solution we call GC twice.
+-  heap_->PreciseCollectAllGarbage(Heap::kNoGCFlags,
+-                                  GarbageCollectionReason::kHeapProfiler);
+-  heap_->PreciseCollectAllGarbage(Heap::kNoGCFlags,
+-                                  GarbageCollectionReason::kHeapProfiler);
++  heap_->CollectAllAvailableGarbage(GarbageCollectionReason::kHeapProfiler);
+ 
+   NullContextForSnapshotScope null_context_scope(Isolate::FromHeap(heap_));
+   SafepointScope scope(heap_);

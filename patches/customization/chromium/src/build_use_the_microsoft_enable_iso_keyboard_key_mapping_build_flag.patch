@@ -1,0 +1,49 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Aleksei Kuzmin <alkuzmin@microsoft.com>
+Date: Tue, 29 Jan 2019 16:39:57 +0100
+Subject: build: use the MICROSOFT_ENABLE_ISO_KEYBOARD_KEY_MAPPING build flag
+
+Microsoft patch
+
+diff --git a/ui/events/BUILD.gn b/ui/events/BUILD.gn
+index 14aa1413f80d9236465ad57e5420038f1d653308..eb37492ea7967353137295c6e90ca3bcba04f588 100644
+--- a/ui/events/BUILD.gn
++++ b/ui/events/BUILD.gn
+@@ -153,6 +153,7 @@ jumbo_component("events_base") {
+   deps = [
+     ":dom_keycode_converter",
+     "//base/third_party/dynamic_annotations",
++    "//microsoft/buildflags",
+   ]
+ 
+   public_deps = [
+diff --git a/ui/events/keycodes/keyboard_code_conversion_mac.mm b/ui/events/keycodes/keyboard_code_conversion_mac.mm
+index e6384ac43145ee31d25e0b83726651806b9b9c61..7244f25e1cf59bb131a7a9f04c82c3efffa33773 100644
+--- a/ui/events/keycodes/keyboard_code_conversion_mac.mm
++++ b/ui/events/keycodes/keyboard_code_conversion_mac.mm
+@@ -13,6 +13,7 @@
+ #include "base/mac/scoped_cftyperef.h"
+ #include "base/memory/scoped_policy.h"
+ #include "base/stl_util.h"
++#include "microsoft/buildflags/buildflags.h"
+ #include "ui/events/keycodes/dom/keycode_converter.h"
+ 
+ namespace ui {
+@@ -803,6 +804,9 @@ KeyboardCode KeyboardCodeFromNSEvent(NSEvent* event) {
+ }
+ 
+ int ISOKeyboardKeyCodeMap(int nativeKeyCode) {
++#if !BUILDFLAG(MICROSOFT_ENABLE_ISO_KEYBOARD_KEY_MAPPING)
++  return nativeKeyCode;
++#else
+   // OS X will swap 'Backquote' and 'IntlBackslash' if it's an ISO keyboard.
+   // https://crbug.com/600607
+   switch (nativeKeyCode) {
+@@ -813,6 +817,7 @@ int ISOKeyboardKeyCodeMap(int nativeKeyCode) {
+     default:
+       return nativeKeyCode;
+   }
++#endif
+ }
+ 
+ DomCode DomCodeFromNSEvent(NSEvent* event) {

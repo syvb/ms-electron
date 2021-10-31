@@ -1,0 +1,59 @@
+# Build a Docker container to build Electron
+# and upload it to the private Docker registry.
+
+parameters:
+  commit: ''  # Git revision in the Electron's build images repo to use for a build.
+  _azureContainerRegistry: electronatms.azurecr.io
+  _azureSubscriptionEndpoint: Electron
+  _imageRepoName: linux-builder
+  _platform: linux
+  _repoLocalPath: build-images
+  _repoUrl: 'https://github.com/electron/build-images'
+  _workingDirectory: $(Build.BinariesDirectory)
+
+jobs:
+- job: build_linux_container
+  displayName: Build Linux container
+  pool:
+    vmImage: ubuntu-18.04
+  steps:
+  # Let's try to login before doing anything else,
+  # if login fails there's no reason to continue.
+  - task: Docker@1
+    displayName: Login to ${{ parameters._azureContainerRegistry }}
+    inputs:
+      azureContainerRegistry: ${{ parameters._azureContainerRegistry }}
+      azureSubscriptionEndpoint: ${{ parameters._azureSubscriptionEndpoint }}
+      command: login
+
+  - template: ../action/setup_agent.yml
+    parameters:
+      platform: ${{ parameters._platform }}
+
+  - template: ../action/checkout_self.yml
+
+  - script: |
+      git clone ${{ parameters._repoUrl }} ${{ parameters._workingDirectory }}/${{ parameters._repoLocalPath }}
+      cd ${{ parameters._workingDirectory }}/${{ parameters._repoLocalPath }}
+      git reset --hard ${{ parameters.commit }} --
+    displayName: Checkout ${{ parameters._repoUrl }}@${{ parameters.commit }}
+
+  - template: ../action/set_variable.yml
+    parameters:
+      name: Electron.Local.ImageName
+      value: ${{ parameters._azureContainerRegistry }}/${{ parameters._imageRepoName }}:${{ parameters.commit }}
+
+  - task: Docker@1
+    displayName: Build ${{ parameters._imageRepoName }}
+    inputs:
+      buildContext: ${{ parameters._workingDirectory }}/${{ parameters._repoLocalPath }}
+      dockerFile: ${{ parameters._workingDirectory }}/${{ parameters._repoLocalPath }}/Dockerfile
+      imageName: $(Electron.Local.ImageName)
+      memoryLimit: 4GB
+      useDefaultContext: false
+
+  - task: Docker@1
+    displayName: Push the image to ${{ parameters._azureContainerRegistry }}
+    inputs:
+      command: push
+      imageName: $(Electron.Local.ImageName)

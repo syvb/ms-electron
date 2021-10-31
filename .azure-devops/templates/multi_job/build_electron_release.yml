@@ -1,0 +1,27 @@
+# Build Electron release on all supported platforms.
+
+parameters:
+  flavour: ''
+  _configs:
+  - platform: linux
+    arches:
+    - arm
+    - arm64
+    - x64
+  - platform: mac
+    arches:
+    - x64
+  - platform: windows
+    arches:
+    - arm64
+    - x64
+    - x86
+
+jobs:
+- ${{ each config in parameters._configs }}:
+  - ${{ each arch in config.arches }}:
+    - template: ../job/build_electron_release.yml
+      parameters:
+        arch: ${{ arch }}
+        flavour: ${{ parameters.flavour }}
+        platform: ${{ config.platform }}

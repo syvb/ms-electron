@@ -1,0 +1,8 @@
+source_set("shared_memory") {
+  sources = [
+    "shared_memory.cc",
+    "shared_memory.h",
+  ]
+
+  deps = [ "//base" ]
+}

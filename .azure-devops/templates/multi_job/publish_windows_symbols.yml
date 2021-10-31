@@ -1,0 +1,13 @@
+parameters:
+  buildId: ''  # An id of a build that created Electron distribution. An empty string stands for the current build.
+  _arch:
+  - arm64
+  - x64
+  - x86
+
+jobs:
+- ${{ each arch in parameters._arch }}:
+  - template: ../job/publish_windows_symbols.yml
+    parameters:
+      buildId: ${{ parameters.buildId }}
+      arch: ${{ arch }}

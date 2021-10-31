@@ -1,0 +1,76 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Aleksei Kuzmin <alkuzmin@microsoft.com>
+Date: Wed, 21 Nov 2018 14:18:44 +0100
+Subject: feat: add memory usage statistics API
+
+Microsoft patch
+
+diff --git a/docs/api/process.md b/docs/api/process.md
+index 799ac9ebfa115682cd99b28dfb5d8f6d6fb494f0..f741556bdc04c33d32036b9da7d4a70a9237fd7b 100644
+--- a/docs/api/process.md
++++ b/docs/api/process.md
+@@ -275,3 +275,36 @@ Starts the watchdog.
+ ### `process.stopWatchdog()`
+ 
+ Stops the watchdog.
++
++### `process.getProcessMemoryInfoEx()`
++
++Returns `Object`:
++
++* `workingSetSize` Integer - The amount of memory currently pinned to actual physical RAM.
++* `peakWorkingSetSize` Integer - The maximum amount of memory that has ever been pinned
++  to actual physical RAM.
++* `privateBytes` Integer _Windows_ - The amount of memory not shared by other processes, such as
++  JS heap or HTML content.
++
++Returns an object giving the process memory usage in Kilobytes.
++
++### `process.getMallocMemoryUsage(maxSize, maxCount, maxTimeToRun)` _Windows_
++
++* `maxSize` Integer
++* `maxCount` Integer
++* `maxTimeToRun` Integer
++
++Returns `Object`:
++
++* `committedSize` Integer
++* `uncommittedSize` Integer
++* `allocatedObjectsSize` Integer
++* `allocatedObjectsCount` Integer
++* `isDataComplete` Boolean
++
++Returns an object giving native CRT heap memory usage statistics.
++Note that all statistics are reported in bytes.
++
++### `process.getLoadedModulesSize()` _Windows_
++
++Returns `Number` - Total loaded size of all the modules.
+diff --git a/spec/api-process-spec.js b/spec/api-process-spec.js
+index 802910741322783e72d1e105263189e3e04ba5a7..c1d7e7be8909eecb7053be95bbf04f1b517acfd1 100644
+--- a/spec/api-process-spec.js
++++ b/spec/api-process-spec.js
+@@ -46,6 +46,23 @@ describe('process module', () => {
+     });
+   });
+ 
++  describe('process.getProcessMemoryInfoEx()', () => {
++    before(function () {
++      if (!process.getProcessMemoryInfoEx) {
++        this.skip();
++      }
++    });
++
++    it('returns process memory info object', () => {
++      const memoryInfo = process.getProcessMemoryInfoEx();
++      expect(memoryInfo.workingSetSize).to.be.a('number');
++      expect(memoryInfo.peakWorkingSetSize).to.be.a('number');
++      if (process.platform === 'windows') {
++        expect(memoryInfo.privateBytes).to.be.a('number');
++      }
++    });
++  });
++
+   describe('process.getProcessMemoryInfo()', async () => {
+     it('resolves promise successfully with valid data', async () => {
+       const memoryInfo = await process.getProcessMemoryInfo();

@@ -1,0 +1,400 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: deepak1556 <hop2deep@gmail.com>
+Date: Thu, 28 May 2020 21:22:15 -0700
+Subject: feat: integrate appcenter support in chromium
+
+Microsoft patch
+
+diff --git a/components/crash/core/app/BUILD.gn b/components/crash/core/app/BUILD.gn
+index af031a027ee3e19e57e9c4d9a133127a3a637003..55dc0613daba411a87a85bfa127950e79149dcfd 100644
+--- a/components/crash/core/app/BUILD.gn
++++ b/components/crash/core/app/BUILD.gn
+@@ -6,6 +6,7 @@
+ assert(!is_ios && !is_fuchsia)
+ 
+ import("//components/gwp_asan/buildflags/buildflags.gni")
++import("//microsoft/buildflags/buildflags.gni")
+ 
+ if (is_android) {
+   import("//build/config/android/config.gni")
+@@ -73,6 +74,7 @@ static_library("app") {
+   deps = [
+     "//base",
+     "//build:branding_buildflags",
++    "//microsoft/buildflags",
+   ]
+ 
+   if (is_mac || is_win || is_android || is_linux) {
+@@ -133,6 +135,14 @@ static_library("app") {
+   if (is_linux) {
+     data_deps = [ "//third_party/crashpad/crashpad/handler:crashpad_handler" ]
+   }
++
++  if (microsoft_enable_app_center && is_linux) {
++    sources += [
++      "//microsoft/src/electron/shell/common/appcenter_api.cc",
++      "//microsoft/src/electron/shell/common/appcenter_api.h",
++    ]
++    deps += [ "//electron:electron_version_header" ]
++  }
+ }
+ 
+ if (is_win) {
+diff --git a/components/crash/core/app/breakpad_linux.cc b/components/crash/core/app/breakpad_linux.cc
+index 454e1c0d58a39cbf23da32f56af7cdf16e9085f0..f5a764d6d75aa2a3f10bb0b564d0f58a1305bfe3 100644
+--- a/components/crash/core/app/breakpad_linux.cc
++++ b/components/crash/core/app/breakpad_linux.cc
+@@ -45,6 +45,7 @@
+ #include "components/crash/core/app/breakpad_linux_impl.h"
+ #include "components/crash/core/app/crash_reporter_client.h"
+ #include "components/crash/core/common/crash_keys.h"
++#include "microsoft/buildflags/buildflags.h"
+ #include "services/service_manager/embedder/descriptors.h"
+ #include "third_party/breakpad/breakpad/src/client/linux/crash_generation/crash_generation_client.h"
+ #include "third_party/breakpad/breakpad/src/client/linux/handler/exception_handler.h"
+@@ -68,6 +69,12 @@
+ #include "services/service_manager/embedder/switches.h"  // nogncheck
+ #endif
+ 
++#if BUILDFLAG(MICROSOFT_ENABLE_APP_CENTER)
++#include "base/base64.h"
++#include "base/containers/span.h"
++#include "microsoft/src/electron/shell/common/appcenter_api.h"
++#endif
++
+ #if defined(ADDRESS_SANITIZER)
+ #include <ucontext.h>  // for getcontext().
+ #endif
+@@ -305,10 +312,12 @@ const char g_rn[] = "\r\n";
+ const char g_form_data_msg[] = "Content-Disposition: form-data; name=\"";
+ const char g_quote_msg[] = "\"";
+ const char g_dashdash_msg[] = "--";
++#if !BUILDFLAG(MICROSOFT_ENABLE_APP_CENTER)
+ const char g_dump_msg[] = "upload_file_minidump\"; filename=\"dump\"";
+ #if defined(ADDRESS_SANITIZER)
+ const char g_log_msg[] = "upload_file_log\"; filename=\"log\"";
+ #endif
++#endif  // !BUILDFLAG(MICROSOFT_ENABLE_APP_CENTER)
+ const char g_content_type_msg[] = "Content-Type: application/octet-stream";
+ 
+ // MimeWriter manages an iovec for writing MIMEs to a file.
+@@ -320,6 +329,9 @@ class MimeWriter {
+   MimeWriter(int fd, const char* const mime_boundary);
+   ~MimeWriter();
+ 
++  // Minor performance trade-off for easier-to-maintain code.
++  void AddString(const char* str);
++
+   // Append boundary.
+   virtual void AddBoundary();
+ 
+@@ -361,10 +373,6 @@ class MimeWriter {
+ 
+  protected:
+   void AddItem(const void* base, size_t size);
+-  // Minor performance trade-off for easier-to-maintain code.
+-  void AddString(const char* str) {
+-    AddItem(str, my_strlen(str));
+-  }
+   void AddItemWithoutTrailingSpaces(const void* base, size_t size);
+ 
+   struct kernel_iovec iov_[kIovCapacity];
+@@ -388,6 +396,10 @@ MimeWriter::MimeWriter(int fd, const char* const mime_boundary)
+ MimeWriter::~MimeWriter() {
+ }
+ 
++void MimeWriter::AddString(const char* str) {
++  AddItem(str, my_strlen(str));
++}
++
+ void MimeWriter::AddBoundary() {
+   AddString(mime_boundary_);
+   AddString(g_rn);
+@@ -1145,7 +1157,7 @@ void EnableNonBrowserCrashDumping() {
+ }
+ #endif  // defined(OS_ANDROID)
+ 
+-bool IsInWhiteList(const base::StringPiece& key) {
++ALLOW_UNUSED_TYPE bool IsInWhiteList(const base::StringPiece& key) {
+   DCHECK(g_crash_key_white_list);
+   for (size_t i = 0; g_crash_key_white_list[i]; ++i) {
+     if (0 == my_strcmp(g_crash_key_white_list[i], key.data())) {
+@@ -1281,12 +1293,20 @@ char* StringFromPrefixAndUint(const char* prefix,
+ // |upload_status_fd| is the file descriptor of a pipe that will receive:
+ // - On Linux, the crash report id
+ // - On Chrome OS, the magic crash complete string.
++#if BUILDFLAG(MICROSOFT_ENABLE_APP_CENTER)
++void ExecUploadProcessOrTerminate(const BreakpadInfo& info,
++                                  const char* dumpfile,
++                                  const char* exe_buf,
++                                  int upload_status_fd,
++                                  google_breakpad::PageAllocator* allocator) {
++#else
+ void ExecUploadProcessOrTerminate(const BreakpadInfo& info,
+                                   const char* dumpfile,
+                                   const char* mime_boundary,
+                                   const char* exe_buf,
+                                   int upload_status_fd,
+                                   google_breakpad::PageAllocator* allocator) {
++#endif
+ #if defined(OS_CHROMEOS)
+   // CrOS uses crash_reporter instead of wget to report crashes,
+   // it needs to know where the crash dump lives and the pid and uid of the
+@@ -1335,6 +1355,49 @@ void ExecUploadProcessOrTerminate(const BreakpadInfo& info,
+   };
+   static const char msg[] = "Cannot upload crash dump: cannot exec "
+                             "/sbin/crash_reporter\n";
++  execve(args[0], const_cast<char**>(args), environ);
++  WriteLog(msg, sizeof(msg) - 1);
++  sys__exit(1);
++
++#elif BUILDFLAG(MICROSOFT_ENABLE_APP_CENTER)
++auto* app_center = microsoft::AppCenter::GetInstance();
++if (app_center->IsInitialized()) {
++  const std::string& app_secret = app_center->app_secret();
++  const std::string& instance_uid = app_center->instance_uid();
++
++  std::string content_type_header = "--header=Content-Type: application/json";
++  std::string app_secret_header = "--header=App-Secret: " + app_secret;
++  std::string instance_id_header = "--header=Install-ID: " + instance_uid;
++
++  // The --post-file argument to wget looks like:
++  //   --post-file=/tmp/...
++  static const char post_file_msg[] = "--post-file=";
++  char* const post_file = reinterpret_cast<char*>(
++      allocator->Alloc(sizeof(post_file_msg) - 1 + strlen(dumpfile) + 1));
++  memcpy(post_file, post_file_msg, sizeof(post_file_msg) - 1);
++  memcpy(post_file + sizeof(post_file_msg) - 1, dumpfile, strlen(dumpfile));
++
++  static const char kWgetBinary[] = "/usr/bin/wget";
++  const char* args[] = {
++      kWgetBinary,
++      content_type_header.data(),
++      app_secret_header.data(),
++      instance_id_header.data(),
++      post_file,
++      "https://in.appcenter.ms/logs?api-version=1.0.0",
++      "--timeout=60",  // Set a timeout so we don't hang forever.
++      "--tries=1",     // Don't retry if the upload fails.
++      "--quiet",       // Be silent.
++      "-O",            // output reply to /dev/null.
++      "/dev/fd/3",
++      NULL,
++  };
++  static const char msg[] = "Cannot upload crash dump: cannot exec "
++                            "/usr/bin/wget\n";
++  execve(args[0], const_cast<char**>(args), environ);
++  WriteLog(msg, sizeof(msg) - 1);
++  sys__exit(1);
++}
+ 
+ #else  // defined(OS_CHROMEOS)
+ 
+@@ -1431,11 +1494,10 @@ void ExecUploadProcessOrTerminate(const BreakpadInfo& info,
+   };
+   static const char msg[] = "Cannot upload crash dump: cannot exec "
+                             "/usr/bin/wget\n";
+-#endif  // defined(OS_CHROMEOS)
+-
+   execve(args[0], const_cast<char**>(args), environ);
+   WriteLog(msg, sizeof(msg) - 1);
+   sys__exit(1);
++#endif  // defined(OS_CHROMEOS)
+ }
+ 
+ // Runs in the helper process to wait for the upload process running
+@@ -1702,6 +1764,38 @@ void HandleCrashDump(const BreakpadInfo& info) {
+     }
+   }
+ 
++#if BUILDFLAG(MICROSOFT_ENABLE_APP_CENTER)
++  auto* app_center = microsoft::AppCenter::GetInstance();
++  if (app_center->IsInitialized()) {
++    std::string product_name, product_version;
++    if (info.crash_keys) {
++      using CrashKeyStorage =
++        crash_reporter::internal::TransitionalCrashKeyStorage;
++      CrashKeyStorage::Iterator crash_key_iterator(
++          *info.crash_keys);
++      const CrashKeyStorage::Entry* entry;
++      while ((entry = crash_key_iterator.Next())) {
++        if (!my_strcmp(entry->key, "_productName")) {
++          product_name = {entry->value, my_strlen(entry->value)};
++        } else if (!my_strcmp(entry->key, "_version")) {
++          product_version = {entry->value, my_strlen(entry->value)};
++        }
++      }
++    }
++    auto dump_span = base::make_span(dump_data, dump_size);
++    auto json_payload = app_center->GenerateCrashJson(
++        product_name, product_version, info.pid, base::Base64Encode(dump_span));
++    if (json_payload) {
++      MimeWriter writer(temp_file_fd, "\r\n");
++      writer.AddString(json_payload.value().data());
++      writer.AddBoundary();
++      writer.Flush();
++    } else {
++      LOG(ERROR) << "Failed to generate app center report";
++    }
++  }
++#else
++
+   // The MIME boundary is 28 hyphens, followed by a 64-bit nonce and a NUL.
+   char mime_boundary[28 + 16 + 1];
+   my_memset(mime_boundary, '-', 28);
+@@ -1908,6 +2002,7 @@ void HandleCrashDump(const BreakpadInfo& info) {
+ #endif
+   writer.AddEnd();
+   writer.Flush();
++#endif  // BUILDFLAG(MICROSOFT_ENABLE_APP_CENTER)
+ 
+   IGNORE_RET(sys_close(temp_file_fd));
+ 
+@@ -1976,8 +2071,13 @@ void HandleCrashDump(const BreakpadInfo& info) {
+         // Upload process.
+         IGNORE_RET(sys_close(fds[0]));  // Close read end of pipe.
+         // Write status to the pipe.
++#if BUILDFLAG(MICROSOFT_ENABLE_APP_CENTER)
++        ExecUploadProcessOrTerminate(info, temp_file, exe_buf, fds[1],
++                                     &allocator);
++#else
+         ExecUploadProcessOrTerminate(info, temp_file, mime_boundary, exe_buf,
+                                      fds[1], &allocator);
++#endif
+       }
+ 
+       // Helper process.
+@@ -1988,7 +2088,16 @@ void HandleCrashDump(const BreakpadInfo& info) {
+         char id_buf[kCrashIdLength + 1];
+         size_t bytes_read =
+             WaitForCrashReportUploadProcess(fds[0], kCrashIdLength, id_buf);
++#if BUILDFLAG(MICROSOFT_ENABLE_APP_CENTER)
++        if (app_center->IsInitialized()) {
++          static const char msg[] = "Server response: ";
++          WriteLog(msg, sizeof(msg) - 1);
++          WriteLog(id_buf, bytes_read);
++          WriteNewline();
++        }
++#else
+         HandleCrashReportId(id_buf, bytes_read, kCrashIdLength);
++#endif
+ 
+         if (sys_waitpid(upload_child, nullptr, WNOHANG) == 0) {
+           // Upload process is still around, kill it.
+@@ -2061,7 +2170,14 @@ void InitCrashReporter(const std::string& process_type) {
+   }
+ 
+ #if !defined(OS_CHROMEOS)
+-  SetUploadURL(GetCrashReporterClient()->GetUploadUrl());
++  auto upload_url = GetCrashReporterClient()->GetUploadUrl();
++  SetUploadURL(upload_url);
++#if BUILDFLAG(MICROSOFT_ENABLE_APP_CENTER)
++  auto* app_center = microsoft::AppCenter::GetInstance();
++  if (process_type.empty() && !app_center->IsInitialized()) {
++    app_center->Initialize(upload_url);
++  }
++#endif
+   g_compress_uploads = GetCrashReporterClient()->GetShouldCompressUploads();
+ #endif
+ 
+diff --git a/third_party/crashpad/crashpad/handler/BUILD.gn b/third_party/crashpad/crashpad/handler/BUILD.gn
+index b314e0a11b92c14b0f07409a5b99b5fe4e894226..8f5362c5cb9ae038bffc09d9b67f2716ca7fc9c2 100644
+--- a/third_party/crashpad/crashpad/handler/BUILD.gn
++++ b/third_party/crashpad/crashpad/handler/BUILD.gn
+@@ -13,6 +13,7 @@
+ # limitations under the License.
+ 
+ import("../build/crashpad_buildconfig.gni")
++import("//microsoft/buildflags/buildflags.gni")
+ 
+ static_library("handler") {
+   sources = [
+@@ -77,11 +78,20 @@ static_library("handler") {
+     "../minidump",
+     "../snapshot",
+     "../tools:tool_support",
++    "//microsoft/buildflags",
+   ]
+ 
+   if (crashpad_is_win) {
+     cflags = [ "/wd4201" ]  # nonstandard extension used : nameless struct/union
+   }
++
++  if (microsoft_enable_app_center) {
++    sources += [
++      "//microsoft/src/electron/shell/common/appcenter_api.cc",
++      "//microsoft/src/electron/shell/common/appcenter_api.h",
++    ]
++    deps += [ "//electron:electron_version_header" ]
++  }
+ }
+ 
+ if (crashpad_is_android) {
+diff --git a/third_party/crashpad/crashpad/handler/crash_report_upload_thread.cc b/third_party/crashpad/crashpad/handler/crash_report_upload_thread.cc
+index fd48e1b6bc1f006bfbb5d613305f2a48a243decf..a77585070f9a5a2687118f76b464f2ad79628a46 100644
+--- a/third_party/crashpad/crashpad/handler/crash_report_upload_thread.cc
++++ b/third_party/crashpad/crashpad/handler/crash_report_upload_thread.cc
+@@ -29,6 +29,7 @@
+ #include "build/build_config.h"
+ #include "client/settings.h"
+ #include "handler/minidump_to_upload_parameters.h"
++#include "microsoft/buildflags/buildflags.h"
+ #include "snapshot/minidump/process_snapshot_minidump.h"
+ #include "snapshot/module_snapshot.h"
+ #include "util/file/file_reader.h"
+@@ -44,6 +45,10 @@
+ #include "handler/mac/file_limit_annotation.h"
+ #endif  // OS_MACOSX
+ 
++#if BUILDFLAG(MICROSOFT_ENABLE_APP_CENTER)
++#include "microsoft/src/electron/shell/common/appcenter_api.h"
++#endif
++
+ namespace crashpad {
+ 
+ CrashReportUploadThread::CrashReportUploadThread(CrashReportDatabase* database,
+@@ -61,6 +66,10 @@ CrashReportUploadThread::CrashReportUploadThread(CrashReportDatabase* database,
+       known_pending_report_uuids_(),
+       database_(database) {
+   DCHECK(!url_.empty());
++
++#if BUILDFLAG(MICROSOFT_ENABLE_APP_CENTER)
++  microsoft::AppCenter::GetInstance()->Initialize(url);
++#endif
+ }
+ 
+ CrashReportUploadThread::~CrashReportUploadThread() {
+@@ -269,6 +278,33 @@ CrashReportUploadThread::UploadResult CrashReportUploadThread::UploadReport(
+     return UploadResult::kPermanentFailure;
+   }
+ 
++#if BUILDFLAG(MICROSOFT_ENABLE_APP_CENTER)
++#if defined(OS_MACOSX) || defined(OS_WIN)
++  if (microsoft::AppCenter::GetInstance()->IsInitialized()) {
++    std::string packageName;
++    auto it = parameters.find("_productName");
++    if (it != parameters.end())
++      packageName = it->second;
++
++    std::string packageVersion;
++    it = parameters.find("_version");
++    if (it != parameters.end())
++      packageVersion = it->second;
++
++    if (microsoft::AppCenter::GetInstance()->CrashPadUploadReport(
++            packageName,
++            packageVersion,
++            minidump_process_snapshot.ProcessID(),
++            reader,
++            response_body)) {
++      return UploadResult::kSuccess;
++    }
++
++    return UploadResult::kRetry;
++  }
++#endif
++#endif
++
+   HTTPMultipartBuilder http_multipart_builder;
+   http_multipart_builder.SetGzipEnabled(options_.upload_gzip);
+ 

@@ -1,0 +1,12 @@
+# https://docs.microsoft.com/en-us/azure/devops/pipelines/scripts/logging-commands?view=azure-devops&tabs=bash#addbuildtag-add-a-tag-to-the-build
+
+parameters:
+- name: tag
+  type: string
+
+steps:
+- template: log_command.yml
+  parameters:
+    action: build.addbuildtag
+    displayName: Add "${{ parameters.tag }}" tag
+    message: ${{ parameters.tag }}

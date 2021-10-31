@@ -1,0 +1,82 @@
+# A cross-platform FFmpeg build.
+
+parameters:
+- name: arches  # [{'arm64', 'x64', 'x86'}, ...]
+  type: object
+  default: []
+- name: flavour
+  type: string
+  values: ['electron', 'media', 'teams', 'vscode']
+- name: platform
+  type: string
+  values: ['linux', 'mac', 'mas', 'windows']
+- name: _buildType
+  type: string
+  default: ffmpeg
+- name: _workingDirectory
+  type: string
+  default: $(Build.BinariesDirectory)
+
+jobs:
+- template: ../executor/builder.yml
+  parameters:
+    jobId: build_ffmpeg_${{ parameters.platform }}
+    displayName: FFmpeg ${{ parameters.platform }}
+    platform: ${{ parameters.platform }}
+    timeoutInMinutes: 60
+    steps:
+    - template: ../action/checkout_electron.yml
+      parameters:
+        gitCacheDirectory: $(Electron.Executor.GitCacheDirectory)
+        platform: ${{ parameters.platform }}
+        workingDirectory: ${{ parameters._workingDirectory }}
+
+    - ${{ each arch in parameters.arches }}:
+      - template: ../action/set_variable.yml
+        parameters:
+          name: Electron.Local.BuildDirectory.RelativePath
+          value: out/ffmpeg_${{ arch }}
+
+      - template: ../action/set_variable.yml
+        parameters:
+          name: Electron.Local.BuildDirectory.AbsolutePath
+          value: ${{ parameters._workingDirectory }}/src/$(Electron.Local.BuildDirectory.RelativePath)
+
+      - template: ../action/gn_gen.yml
+        parameters:
+          arch: ${{ arch }}
+          buildDirectory: $(Electron.Local.BuildDirectory.RelativePath)
+          buildType: ${{ parameters._buildType }}
+          displayName: Generate "${{ arch }}" build files
+          flavour: ${{ parameters.flavour }}
+          saveArgsFile: false
+          srcDirectory: ${{ parameters._workingDirectory }}/src
+
+      - template: ../action/ninja.yml
+        parameters:
+          buildDirectory: $(Electron.Local.BuildDirectory.AbsolutePath)
+          displayName: Build FFmpeg ${{ parameters.platform }} ${{ arch }}
+          target: third_party/ffmpeg
+
+      - ${{ if eq(parameters.platform, 'linux') }}:
+        - template: ../action/strip_linux_binary.yml
+          parameters:
+            arch: ${{ arch }}
+            directory: $(Electron.Local.BuildDirectory.RelativePath)
+            srcDirectory: ${{ parameters._workingDirectory }}/src
+
+      - template: ../action/ninja.yml
+        parameters:
+          buildDirectory: $(Electron.Local.BuildDirectory.AbsolutePath)
+          displayName: Build an FFmpeg ${{ parameters.platform }} ${{ arch }} archive
+          target: electron:electron_ffmpeg_zip
+
+      - template: ../action/copy_artifact.yml
+        parameters:
+          checkFileSizeAtLeast: 0.6  # MB
+          file: ffmpeg.zip
+          sourceFolder: $(Electron.Local.BuildDirectory.AbsolutePath)
+          targetFolder: $(Build.ArtifactStagingDirectory)/${{ arch }}
+
+    - publish: $(Build.ArtifactStagingDirectory)
+      artifact: 'ffmpeg ${{ parameters.platform }}'

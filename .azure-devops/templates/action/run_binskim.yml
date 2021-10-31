@@ -1,0 +1,32 @@
+# See http://aka.ms/teamssdl for details.
+# Requires access to the "SkypeSpaces-Infra" repository.
+
+parameters:
+  electronDirectory: ''  # Absolute path.
+  pdbZipPath: ''  # Absolute path.
+
+steps:
+- task: ExtractFiles@1
+  displayName: Extract pdb.zip contents
+  inputs:
+    archiveFilePatterns: ${{ parameters.pdbZipPath }}
+    destinationFolder: ${{ parameters.electronDirectory }}/pdb
+    cleanDestinationFolder: false
+
+# FIXME(alkuzmin): Remove it.
+- script: dir ${{ parameters.electronDirectory }}\pdb
+  displayName: Show the list of pdb files
+
+- template: set_variable.yml
+  parameters:
+    name: BinSkimAnalyzeTarget
+    value: >-
+      ${{ parameters.electronDirectory }}/*.dll;
+      ${{ parameters.electronDirectory }}/*.exe;
+
+- template: set_variable.yml
+  parameters:
+    name: BinSkimAnalyzeSymPath
+    value: ${{ parameters.electronDirectory }}/pdb
+
+- template: azure-devops-templates/steps/BinSkim.yml@SkypeSpaces-Infra

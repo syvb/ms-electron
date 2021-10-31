@@ -1,0 +1,58 @@
+# https://domoreexp.visualstudio.com/Teamspace/_build?definitionId=2709
+#
+# Publish already built Electron to an Azure storage.
+
+trigger: none
+
+parameters:
+- name: buildId
+  displayName: Electron build ID
+  type: number
+
+resources:
+  repositories:
+  - repository: SkypeSpaces-Infra
+    type: git
+    name: SkypeSpaces-Infra
+
+stages:
+- stage: run_security_tools
+  displayName: Maybe run security tools
+  jobs:
+  - template: templates/job/get_build_flavour.yml
+    parameters:
+      buildId: ${{ parameters.buildId }}
+
+  - template: templates/multi_job/run_security_tools.yml
+    parameters:
+      buildId: ${{ parameters.buildId }}
+      condition: eq(dependencies.get_build_flavour.outputs['Electron.Flavour'], 'teams')
+      dependsOn: get_build_flavour
+
+- stage: publish_electron_symbols
+  dependsOn: run_security_tools
+  displayName: Publish debug symbols for Windows and Mac to symbol servers
+  jobs:
+  - template: templates/job/get_build_flavour.yml
+    parameters:
+      buildId: ${{ parameters.buildId }}
+
+  - template: templates/multi_job/publish_windows_symbols.yml
+    parameters:
+      buildId: ${{ parameters.buildId }}
+      condition: eq(dependencies.get_build_flavour.outputs['Electron.Flavour'], 'teams')
+      dependsOn: get_build_flavour
+
+  - template: templates/job/publish_mac_symbols_to_app_center.yml
+    parameters:
+      buildId: ${{ parameters.buildId }}
+      condition: eq(dependencies.get_build_flavour.outputs['Electron.Flavour'], 'teams')
+      dependsOn: get_build_flavour
+
+- stage: publish_electron_to_azure
+  dependsOn: run_security_tools
+  displayName: Publish Electron
+  jobs:
+  - template: templates/job/publish_electron_to_azure.yml
+    parameters:
+      buildId: ${{ parameters.buildId }}

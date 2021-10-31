@@ -1,0 +1,217 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Milan Burda <miburda@microsoft.com>
+Date: Wed, 2 Dec 2020 03:15:10 +0100
+Subject: feat: add event.senderFrame property returning the webFrameMain
+ (#26764)
+
+Backport: https://github.com/electron/electron/pull/26764
+
+diff --git a/docs/api/structures/ipc-main-event.md b/docs/api/structures/ipc-main-event.md
+index ae32dc46a6888dc7cb96fbe31fc587c34ebae958..668abf24b108002494d219f3e91cfdcf684cead0 100644
+--- a/docs/api/structures/ipc-main-event.md
++++ b/docs/api/structures/ipc-main-event.md
+@@ -4,6 +4,7 @@
+ * `frameId` Integer - The ID of the renderer frame that sent this message
+ * `returnValue` any - Set this to the value to be returned in a synchronous message
+ * `sender` WebContents - Returns the `webContents` that sent the message
++* `senderFrame` WebFrameMain _Readonly_ - The frame that sent this message
+ * `ports` MessagePortMain[] - A list of MessagePorts that were transferred with this message
+ * `reply` Function - A function that will send an IPC message to the renderer frame that sent the original message that you are currently handling.  You should use this method to "reply" to the sent message in order to guarantee the reply will go to the correct process and frame.
+   * `channel` String
+diff --git a/docs/api/structures/ipc-main-invoke-event.md b/docs/api/structures/ipc-main-invoke-event.md
+index b765791e8258c68a50068b40824f2652647be2ed..d15f44df40685a5f073738d43be78d95eed86110 100644
+--- a/docs/api/structures/ipc-main-invoke-event.md
++++ b/docs/api/structures/ipc-main-invoke-event.md
+@@ -3,3 +3,4 @@
+ * `processId` Integer - The internal ID of the renderer process that sent this message
+ * `frameId` Integer - The ID of the renderer frame that sent this message
+ * `sender` WebContents - Returns the `webContents` that sent the message
++* `senderFrame` WebFrameMain _Readonly_ - The frame that sent this message
+diff --git a/docs/api/web-frame-main.md b/docs/api/web-frame-main.md
+index fa3c00a28ac3e2f73a1e58ccedb1cabe15e18989..7fc60e2d353850a40c1acbe286336046ebdf4eb6 100644
+--- a/docs/api/web-frame-main.md
++++ b/docs/api/web-frame-main.md
+@@ -26,7 +26,7 @@ win.webContents.on(
+ )
+ ```
+ 
+-You can also access frames of existing pages by using the `webFrame` property
++You can also access frames of existing pages by using the `mainFrame` property
+ of [`WebContents`](web-contents.md).
+ 
+ ```javascript
+@@ -57,8 +57,8 @@ These methods can be accessed from the `webFrameMain` module:
+ 
+ ### `webFrameMain.fromId(processId, routingId)`
+ 
+-* `processId` Integer - An `Integer` representing the id of the process which owns the frame.
+-* `routingId` Integer - An `Integer` representing the unique frame id in the
++* `processId` Integer - An `Integer` representing the internal ID of the process which owns the frame.
++* `routingId` Integer - An `Integer` representing the unique frame ID in the
+   current renderer process. Routing IDs can be retrieved from `WebFrameMain`
+   instances (`frame.routingId`) and are also passed by frame
+   specific `WebContents` navigation events (e.g. `did-frame-navigate`).
+diff --git a/lib/browser/api/web-contents.js b/lib/browser/api/web-contents.js
+index 3def8d218907e8a913bea66328bb22e2f1276966..c742a41c10f6c9f066dae1a0e21aec3f4ab548b7 100644
+--- a/lib/browser/api/web-contents.js
++++ b/lib/browser/api/web-contents.js
+@@ -4,7 +4,7 @@ const { EventEmitter } = require('events');
+ const electron = require('electron');
+ const path = require('path');
+ const url = require('url');
+-const { app, ipcMain, session } = electron;
++const { app, ipcMain, session, webFrameMain } = electron;
+ 
+ const { internalWindowOpen } = require('@electron/internal/browser/guest-window-manager');
+ const NavigationController = require('@electron/internal/browser/navigation-controller');
+@@ -461,6 +461,13 @@ const addReplyInternalToEvent = (event) => {
+   });
+ };
+ 
++const addSenderFrameToEvent = (event) => {
++  const { processId, frameId } = event;
++  Object.defineProperty(event, 'senderFrame', {
++    get: () => webFrameMain.fromId(processId, frameId)
++  });
++};
++
+ const addReturnValueToEvent = (event) => {
+   Object.defineProperty(event, 'returnValue', {
+     set: (value) => event.sendReply([value]),
+@@ -483,6 +490,7 @@ WebContents.prototype._init = function () {
+ 
+   // Dispatch IPC messages to the ipc module.
+   this.on('-ipc-message', function (event, internal, channel, args) {
++    addSenderFrameToEvent(event);
+     if (internal) {
+       addReplyInternalToEvent(event);
+       ipcMainInternal.emit(channel, event, ...args);
+@@ -494,6 +502,7 @@ WebContents.prototype._init = function () {
+   });
+ 
+   this.on('-ipc-invoke', function (event, internal, channel, args) {
++    addSenderFrameToEvent(event);
+     event._reply = (result) => event.sendReply({ result });
+     event._throw = (error) => {
+       console.error(`Error occurred in handler for '${channel}':`, error);
+@@ -508,6 +517,7 @@ WebContents.prototype._init = function () {
+   });
+ 
+   this.on('-ipc-message-sync', function (event, internal, channel, args) {
++    addSenderFrameToEvent(event);
+     addReturnValueToEvent(event);
+     if (internal) {
+       addReplyInternalToEvent(event);
+diff --git a/shell/browser/api/electron_api_web_frame_main.cc b/shell/browser/api/electron_api_web_frame_main.cc
+index 6a25aab8c77f41775905347306cc1d8ebc3cf0a1..c377745e6ff2b21710ff24139c83c615b8099ecf 100644
+--- a/shell/browser/api/electron_api_web_frame_main.cc
++++ b/shell/browser/api/electron_api_web_frame_main.cc
+@@ -11,7 +11,7 @@
+ 
+ #include "base/lazy_instance.h"
+ #include "base/logging.h"
+-#include "content/browser/renderer_host/frame_tree_node.h"  // nogncheck
++#include "content/browser/frame_host/frame_tree_node.h"  // nogncheck
+ #include "content/public/browser/render_frame_host.h"
+ #include "gin/object_template_builder.h"
+ #include "shell/browser/browser.h"
+@@ -96,8 +96,7 @@ v8::Local<v8::Promise> WebFrameMain::ExecuteJavaScript(
+   if (user_gesture) {
+     auto* ftn = content::FrameTreeNode::From(render_frame_);
+     ftn->UpdateUserActivationState(
+-        blink::mojom::UserActivationUpdateType::kNotifyActivation,
+-        blink::mojom::UserActivationNotificationType::kTest);
++        blink::mojom::UserActivationUpdateType::kNotifyActivation);
+   }
+ 
+   render_frame_->ExecuteJavaScriptForTests(
+@@ -111,7 +110,8 @@ v8::Local<v8::Promise> WebFrameMain::ExecuteJavaScript(
+ bool WebFrameMain::Reload(v8::Isolate* isolate) {
+   if (!CheckRenderFrame())
+     return false;
+-  return render_frame_->Reload();
++  render_frame_->Reload();
++  return true;
+ }
+ 
+ int WebFrameMain::FrameTreeNodeID(v8::Isolate* isolate) const {
+diff --git a/shell/common/gin_converters/frame_converter.cc b/shell/common/gin_converters/frame_converter.cc
+index 53f34e285c6c840e82694ec818603e550eb29da5..943a6214651a6a6c8a76ac9c4004ee020988688b 100644
+--- a/shell/common/gin_converters/frame_converter.cc
++++ b/shell/common/gin_converters/frame_converter.cc
+@@ -4,15 +4,8 @@
+ 
+ #include "shell/common/gin_converters/frame_converter.h"
+ 
+-#include <string>
+-#include <vector>
+-
+ #include "content/public/browser/render_frame_host.h"
+ #include "shell/browser/api/electron_api_web_frame_main.h"
+-#include "shell/common/gin_converters/blink_converter.h"
+-#include "shell/common/gin_converters/callback_converter.h"
+-#include "shell/common/gin_converters/gurl_converter.h"
+-#include "shell/common/gin_helper/dictionary.h"
+ 
+ namespace gin {
+ 
+diff --git a/shell/common/gin_converters/frame_converter.h b/shell/common/gin_converters/frame_converter.h
+index be393718995569cf6914ebcf43a907ebe4c436a8..3a500dae89343dfbeb396f345dc04b06f20ef991 100644
+--- a/shell/common/gin_converters/frame_converter.h
++++ b/shell/common/gin_converters/frame_converter.h
+@@ -5,8 +5,6 @@
+ #ifndef SHELL_COMMON_GIN_CONVERTERS_FRAME_CONVERTER_H_
+ #define SHELL_COMMON_GIN_CONVERTERS_FRAME_CONVERTER_H_
+ 
+-#include <utility>
+-
+ #include "gin/converter.h"
+ 
+ namespace content {
+diff --git a/spec-main/api-subframe-spec.ts b/spec-main/api-subframe-spec.ts
+index 98b9334fd85b82460a659c756877636d9830f00d..d4a43a5552bdca224987193fb5e79c4340c262ab 100644
+--- a/spec-main/api-subframe-spec.ts
++++ b/spec-main/api-subframe-spec.ts
+@@ -35,6 +35,8 @@ describe('renderer nodeIntegrationInSubFrames', () => {
+         expect(event1[0].frameId).to.not.equal(event2[0].frameId);
+         expect(event1[0].frameId).to.equal(event1[2]);
+         expect(event2[0].frameId).to.equal(event2[2]);
++        expect(event1[0].senderFrame.routingId).to.equal(event1[2]);
++        expect(event2[0].senderFrame.routingId).to.equal(event2[2]);
+       });
+ 
+       it('should load preload scripts in nested iframes', async () => {
+@@ -47,6 +49,9 @@ describe('renderer nodeIntegrationInSubFrames', () => {
+         expect(event1[0].frameId).to.equal(event1[2]);
+         expect(event2[0].frameId).to.equal(event2[2]);
+         expect(event3[0].frameId).to.equal(event3[2]);
++        expect(event1[0].senderFrame.routingId).to.equal(event1[2]);
++        expect(event2[0].senderFrame.routingId).to.equal(event2[2]);
++        expect(event3[0].senderFrame.routingId).to.equal(event3[2]);
+       });
+ 
+       it('should correctly reply to the main frame with using event.reply', async () => {
+@@ -57,6 +62,7 @@ describe('renderer nodeIntegrationInSubFrames', () => {
+         event1[0].reply('preload-ping');
+         const details = await pongPromise;
+         expect(details[1]).to.equal(event1[0].frameId);
++        expect(details[1]).to.equal(event1[0].senderFrame.routingId);
+       });
+ 
+       it('should correctly reply to the sub-frames with using event.reply', async () => {
+@@ -67,6 +73,7 @@ describe('renderer nodeIntegrationInSubFrames', () => {
+         event2[0].reply('preload-ping');
+         const details = await pongPromise;
+         expect(details[1]).to.equal(event2[0].frameId);
++        expect(details[1]).to.equal(event2[0].senderFrame.routingId);
+       });
+ 
+       it('should correctly reply to the nested sub-frames with using event.reply', async () => {
+@@ -77,6 +84,7 @@ describe('renderer nodeIntegrationInSubFrames', () => {
+         event3[0].reply('preload-ping');
+         const details = await pongPromise;
+         expect(details[1]).to.equal(event3[0].frameId);
++        expect(details[1]).to.equal(event3[0].senderFrame.routingId);
+       });
+ 
+       it('should not expose globals in main world', async () => {

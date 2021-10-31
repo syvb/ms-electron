@@ -1,0 +1,14 @@
+parameters:
+  buildDirectory: ''  # An absolute path.
+
+steps:
+- template: ninja.yml
+  parameters:
+    buildDirectory: ${{ parameters.buildDirectory }}
+    displayName: Build Node.js headers
+    target: 'third_party/electron_node:headers'
+
+- template: copy_artifact.yml
+  parameters:
+    file: node_headers.tar.gz
+    sourceFolder: ${{ parameters.buildDirectory }}/gen

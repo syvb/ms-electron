@@ -1,0 +1,784 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Milan Burda <miburda@microsoft.com>
+Date: Wed, 7 Nov 2018 23:22:19 +0100
+Subject: feat: add remoteHost API
+
+Microsoft patch
+
+diff --git a/.eslintrc.json b/.eslintrc.json
+index 0db6a039d9cfbbb3e2632a21f77746b2b4ebd8ed..5fe7f2fb0b488ce8f9c9f967adbdeacdc29d24fd 100644
+--- a/.eslintrc.json
++++ b/.eslintrc.json
+@@ -32,6 +32,7 @@
+     "ENABLE_DESKTOP_CAPTURER": "readonly",
+     "ENABLE_REMOTE_MODULE": "readonly",
+     "ENABLE_VIEWS_API": "readonly",
++    "MICROSOFT_ENABLE_REMOTE_HOST": "readonly",
+     "BigInt": "readonly"
+   },
+   "overrides": [
+diff --git a/build/webpack/webpack.config.base.js b/build/webpack/webpack.config.base.js
+index 789bad31c4bc254d9a450f1a73e02a4466afd4ad..809c5adb18e08413adbe861960c7cc07efa2e5d1 100644
+--- a/build/webpack/webpack.config.base.js
++++ b/build/webpack/webpack.config.base.js
+@@ -65,6 +65,13 @@ if (defines['ENABLE_VIEWS_API'] === 'false') {
+   )
+ }
+ 
++if (defines['MICROSOFT_ENABLE_REMOTE_HOST'] === 'false') {
++  ignoredModules.push(
++    '@microsoft/lib/renderer/api/remote-client',
++    '@microsoft/lib/renderer/api/remote-server'
++  )
++}
++
+ module.exports = ({
+   alwaysHasNode,
+   loadElectronFromAlternateTarget,
+diff --git a/docs/api/ipc-renderer.md b/docs/api/ipc-renderer.md
+index 8f8b78f58570c893f6114f045ede0616907ae5b3..c660d7b35c042a7bab080beb5079ae71b67d6d23 100644
+--- a/docs/api/ipc-renderer.md
++++ b/docs/api/ipc-renderer.md
+@@ -192,6 +192,31 @@ Sends a message to a window with `webContentsId` via `channel`.
+ Like `ipcRenderer.send` but the event will be sent to the `<webview>` element in
+ the host page instead of the main process.
+ 
++### `ipcRenderer.sendToRenderer(webContentsId, channel, args)`
++
++* `webContentsId` Number
++* `channel` String
++* `args` any[]
++
++Microsoft internal API.
++
++### `ipcRenderer.sendToRendererSync(webContentsId, channel, args, watchdogApi)`
++
++* `webContentsId` Number
++* `channel` String
++* `args` any[]
++* `watchdogApi` String
++
++Returns `any`
++
++Microsoft internal API.
++
++### `ipcRenderer.connectToRenderer(webContentsId)`
++
++* `webContentsId` Number
++
++Microsoft internal API.
++
+ ## Event object
+ 
+ The documentation for the `event` object passed to the `callback` can be found
+diff --git a/docs/api/structures/ipc-renderer-event.md b/docs/api/structures/ipc-renderer-event.md
+index 4b2c0805ce21ac0b95f7ad6cb4f72677b2ae1029..4f0276d6ea059dc94dc368bf80a3152f42af553e 100644
+--- a/docs/api/structures/ipc-renderer-event.md
++++ b/docs/api/structures/ipc-renderer-event.md
+@@ -3,5 +3,6 @@
+ * `sender` IpcRenderer - The `IpcRenderer` instance that emitted the event originally
+ * `senderId` Integer - The `webContents.id` that sent the message, you can call `event.sender.sendTo(event.senderId, ...)` to reply to the message, see [ipcRenderer.sendTo][ipc-renderer-sendto] for more information. This only applies to messages sent from a different renderer. Messages sent directly from the main process set `event.senderId` to `0`.
+ * `ports` MessagePort[] - A list of MessagePorts that were transferred with this message
++* `isDirectChannel` Boolean - Microsoft internal API
+ 
+ [ipc-renderer-sendto]: #ipcrenderersendtowindowid-channel--arg1-arg2-
+diff --git a/lib/renderer/api/ipc-renderer.ts b/lib/renderer/api/ipc-renderer.ts
+index 2fdfa17f3594df6a6f716587ab9cb715161d7c90..5561349bd930fd3544517c5e9a6dac1283db2ced 100644
+--- a/lib/renderer/api/ipc-renderer.ts
++++ b/lib/renderer/api/ipc-renderer.ts
+@@ -1,5 +1,6 @@
+ const { ipc } = process.electronBinding('ipc');
+ const v8Util = process.electronBinding('v8_util');
++const features = process.electronBinding('features');
+ 
+ // Created by init.js.
+ const ipcRenderer = v8Util.getHiddenValue<Electron.IpcRenderer>(global, 'ipc');
+@@ -34,6 +35,13 @@ if (!ipcRenderer.send) {
+   ipcRenderer.postMessage = function (channel: string, message: any, transferables: any) {
+     return ipc.postMessage(channel, message, transferables);
+   };
++
++  // microsoft
++  if (features.isRemoteHostEnabled()) {
++    ipcRenderer.sendToRenderer = ipc.sendToRenderer.bind(ipc, internal);
++    ipcRenderer.sendToRendererSync = ipc.sendToRendererSync.bind(ipc, internal);
++    ipcRenderer.connectToRenderer = ipc.connectToRenderer.bind(ipc);
++  }
+ }
+ 
+ export default ipcRenderer;
+diff --git a/lib/renderer/api/module-list.ts b/lib/renderer/api/module-list.ts
+index 7a2d0b0d9e101d64bfbc2b8130794029334aa70c..900b2a97fe67cc89d96a118a27d275d44c9ac080 100644
+--- a/lib/renderer/api/module-list.ts
++++ b/lib/renderer/api/module-list.ts
+@@ -24,3 +24,10 @@ if (BUILDFLAG(ENABLE_REMOTE_MODULE) && enableRemoteModule) {
+     loader: () => require('@electron/internal/renderer/api/remote')
+   });
+ }
++
++if (BUILDFLAG(MICROSOFT_ENABLE_REMOTE_HOST)) {
++  rendererModuleList.push(
++    { name: 'remoteClient', loader: () => require('@microsoft/lib/renderer/api/remote-client') },
++    { name: 'remoteHost', loader: () => require('@microsoft/lib/renderer/api/remote-server') }
++  );
++}
+diff --git a/lib/renderer/init.ts b/lib/renderer/init.ts
+index d2b232da613f5f0a49778803d5332be5fa3ba8e6..cd2fd66fd85affe4258a59555319d5591f81a3aa 100644
+--- a/lib/renderer/init.ts
++++ b/lib/renderer/init.ts
+@@ -49,9 +49,20 @@ v8Util.setHiddenValue(global, 'ipc', ipcEmitter);
+ v8Util.setHiddenValue(global, 'ipc-internal', ipcInternalEmitter);
+ 
+ v8Util.setHiddenValue(global, 'ipcNative', {
+-  onMessage (internal: boolean, channel: string, ports: any[], args: any[], senderId: number) {
++  onMessage (internal: boolean, channel: string, ports: any[], args: any[], senderId: number, isDirectChannel: boolean) {
+     const sender = internal ? ipcInternalEmitter : ipcEmitter;
+-    sender.emit(channel, { sender, senderId, ports }, ...args);
++    sender.emit(channel, { sender, senderId, ports, isDirectChannel }, ...args);
++  },
++
++  onMessageSync (internal: boolean, channel: string, args: any[], event: Electron.IpcRendererEvent) {
++    const sender = internal ? ipcInternalEmitter : ipcEmitter;
++    sender.emit(channel, event, ...args);
++  },
++
++  onConnectStatus (senderId: number, connected: boolean) {
++    for (const sender of [ipcInternalEmitter, ipcEmitter]) {
++      sender.emit('ms-connect-event', { sender, senderId }, connected);
++    }
+   }
+ });
+ 
+diff --git a/lib/renderer/ipc-renderer-internal.ts b/lib/renderer/ipc-renderer-internal.ts
+index 89ce236708f4c8344d209fd7b8fba907fac0ad4f..3bd496ad3cb8bbc456d809e4d99e478ffd71244a 100644
+--- a/lib/renderer/ipc-renderer-internal.ts
++++ b/lib/renderer/ipc-renderer-internal.ts
+@@ -1,5 +1,6 @@
+ const { ipc } = process.electronBinding('ipc');
+ const v8Util = process.electronBinding('v8_util');
++const features = process.electronBinding('features');
+ 
+ // Created by init.js.
+ export const ipcRendererInternal = v8Util.getHiddenValue<Electron.IpcRendererInternal>(global, 'ipc-internal');
+@@ -53,4 +54,11 @@ if (!ipcRendererInternal.send) {
+       listener(event, ...args);
+     });
+   };
++
++  // microsoft
++  if (features.isRemoteHostEnabled()) {
++    ipcRendererInternal.sendToRenderer = ipc.sendToRenderer.bind(ipc, internal);
++    ipcRendererInternal.sendToRendererSync = ipc.sendToRendererSync.bind(ipc, internal);
++    ipcRendererInternal.connectToRenderer = ipc.connectToRenderer.bind(ipc);
++  }
+ }
+diff --git a/lib/sandboxed_renderer/api/module-list.ts b/lib/sandboxed_renderer/api/module-list.ts
+index ef957d36104ec7963b61256858f6d3bdbf5a401b..4ed792e0dfdeb647d178c19afbc4734c58cf4f5b 100644
+--- a/lib/sandboxed_renderer/api/module-list.ts
++++ b/lib/sandboxed_renderer/api/module-list.ts
+@@ -40,3 +40,10 @@ if (BUILDFLAG(ENABLE_REMOTE_MODULE) && process.isRemoteModuleEnabled) {
+     loader: () => require('@electron/internal/renderer/api/remote')
+   });
+ }
++
++if (BUILDFLAG(MICROSOFT_ENABLE_REMOTE_HOST)) {
++  moduleList.push({
++    name: 'remoteClient',
++    loader: () => require('@microsoft/lib/renderer/api/remote-client')
++  });
++}
+diff --git a/lib/sandboxed_renderer/init.js b/lib/sandboxed_renderer/init.js
+index f6390793e92bebb9a7457398e261e861be797bb9..190647f5d816bb7cdf9e6aaf0d433c2f15566de0 100644
+--- a/lib/sandboxed_renderer/init.js
++++ b/lib/sandboxed_renderer/init.js
+@@ -55,9 +55,20 @@ const loadedModules = new Map([
+ // ElectronApiServiceImpl will look for the "ipcNative" hidden object when
+ // invoking the 'onMessage' callback.
+ v8Util.setHiddenValue(global, 'ipcNative', {
+-  onMessage (internal, channel, ports, args, senderId) {
++  onMessage (internal, channel, ports, args, senderId, isDirectChannel) {
+     const sender = internal ? ipcRendererInternal : electron.ipcRenderer;
+-    sender.emit(channel, { sender, senderId, ports }, ...args);
++    sender.emit(channel, { sender, senderId, ports, isDirectChannel }, ...args);
++  },
++
++  onMessageSync (internal, channel, args, event) {
++    const sender = internal ? ipcRendererInternal : electron.ipcRenderer;
++    sender.emit(channel, event, ...args);
++  },
++
++  onConnectStatus (senderId, connected) {
++    for (const sender of [ipcRendererInternal, electron.ipcRenderer]) {
++      sender.emit('ms-connect-event', { sender, senderId }, connected);
++    }
+   }
+ });
+ 
+diff --git a/shell/browser/api/electron_api_web_contents.cc b/shell/browser/api/electron_api_web_contents.cc
+index 7a6e3a5f571e3b8cfee5d67edeaf78fd6faeacdc..2db01e78dd44bfed1cb70b50485a5438808dcce2 100644
+--- a/shell/browser/api/electron_api_web_contents.cc
++++ b/shell/browser/api/electron_api_web_contents.cc
+@@ -1375,6 +1375,29 @@ void WebContents::UpdateDraggableRegions(
+     observer.OnDraggableRegionsUpdated(regions);
+ }
+ 
++#if BUILDFLAG(MICROSOFT_ENABLE_REMOTE_HOST)
++
++void WebContents::MessageToSync(bool internal,
++                                int32_t web_contents_id,
++                                const std::string& channel,
++                                blink::CloneableMessage arguments,
++                                MessageToSyncCallback callback) {
++  TRACE_EVENT1("electron", "WebContents::MessageToSync", "channel", channel);
++  send_to_sync_handler_.MessageToSync(internal, web_contents_id, channel,
++                                      std::move(arguments),
++                                      std::move(callback));
++}
++
++void WebContents::ConnectToRenderer(
++    int32_t web_contents_id,
++    mojo::PendingReceiver<mojom::RendererService> receiver,
++    ConnectToRendererCallback callback) {
++  send_to_sync_handler_.ConnectToRenderer(web_contents_id, std::move(receiver),
++                                          std::move(callback));
++}
++
++#endif
++
+ #if BUILDFLAG(MICROSOFT_ENABLE_WATCHDOG)
+ 
+ void WebContents::WatchdogOpenLogFile(WatchdogOpenLogFileCallback callback) {
+diff --git a/shell/browser/api/electron_api_web_contents.h b/shell/browser/api/electron_api_web_contents.h
+index c827e7d7cc4fce885d5701bf39d5a5e7157e773f..727fdb8c57a4bb578bf3e6910fbe12b3f649f7bd 100644
+--- a/shell/browser/api/electron_api_web_contents.h
++++ b/shell/browser/api/electron_api_web_contents.h
+@@ -44,6 +44,10 @@
+ #endif
+ #endif
+ 
++#if BUILDFLAG(MICROSOFT_ENABLE_REMOTE_HOST)
++#include "microsoft/src/electron/shell/browser/send_to_sync_handler.h"
++#endif
++
+ #if BUILDFLAG(MICROSOFT_ENABLE_WATCHDOG)
+ #include "microsoft/src/electron/shell/common/api/watchdog.h"
+ #endif
+@@ -613,6 +617,17 @@ class WebContents : public gin_helper::TrackableObject<WebContents>,
+   void SetTemporaryZoomLevel(double level) override;
+   void DoGetZoomLevel(DoGetZoomLevelCallback callback) override;
+ 
++#if BUILDFLAG(MICROSOFT_ENABLE_REMOTE_HOST)
++  void MessageToSync(bool internal,
++                     int32_t web_contents_id,
++                     const std::string& channel,
++                     blink::CloneableMessage arguments,
++                     MessageToSyncCallback callback) override;
++  void ConnectToRenderer(int32_t web_contents_id,
++                         mojo::PendingReceiver<mojom::RendererService>,
++                         ConnectToRendererCallback callback) override;
++#endif
++
+ #if BUILDFLAG(MICROSOFT_ENABLE_WATCHDOG)
+   void WatchdogOpenLogFile(WatchdogOpenLogFileCallback callback) override;
+   void WatchdogDeleteLogFile() override;
+@@ -675,6 +690,10 @@ class WebContents : public gin_helper::TrackableObject<WebContents>,
+   std::map<content::RenderFrameHost*, std::vector<mojo::ReceiverId>>
+       frame_to_receivers_map_;
+ 
++#if BUILDFLAG(MICROSOFT_ENABLE_REMOTE_HOST)
++  microsoft::SendToSyncHandler send_to_sync_handler_{this};
++#endif
++
+ #if BUILDFLAG(MICROSOFT_ENABLE_WATCHDOG)
+   microsoft::Watchdog::Service watchdog_service_{this};
+ #endif
+diff --git a/shell/common/api/api.mojom b/shell/common/api/api.mojom
+index 955c4d5404b1466f4221e81e4602147b1c90a7c4..7c8dbd5de86e6e8c437f544e67e56d507179cdb4 100644
+--- a/shell/common/api/api.mojom
++++ b/shell/common/api/api.mojom
+@@ -5,6 +5,23 @@ import "ui/gfx/geometry/mojom/geometry.mojom";
+ import "third_party/blink/public/mojom/messaging/cloneable_message.mojom";
+ import "third_party/blink/public/mojom/messaging/transferable_message.mojom";
+ 
++[EnableIf=microsoft_enable_remote_host]
++interface RendererService {
++  Message(
++      bool internal,
++      string channel,
++      blink.mojom.CloneableMessage args,
++      int32 sender_id
++  );
++
++  [Sync]
++  MessageSync(
++      bool internal,
++      string channel,
++      blink.mojom.CloneableMessage args,
++      int32 sender_id) => (blink.mojom.CloneableMessage result, bool success);
++};
++
+ interface ElectronRenderer {
+   Message(
+       bool internal,
+@@ -15,6 +32,16 @@ interface ElectronRenderer {
+ 
+   ReceivePostMessage(string channel, blink.mojom.TransferableMessage message);
+ 
++  [EnableIf=microsoft_enable_remote_host]
++  MessageSync(
++      bool internal,
++      string channel,
++      blink.mojom.CloneableMessage arguments,
++      int32 sender_id) => (blink.mojom.CloneableMessage result, bool success);
++
++  [EnableIf=microsoft_enable_remote_host]
++  ConnectToRenderer(int32 connetor_id, pending_receiver<electron.mojom.RendererService> receiver) => (bool success);
++
+   // This is an API specific to the "remote" module, and will ultimately be
+   // replaced by generic IPC once WeakRef is generally available.
+   [EnableIf=enable_remote_module]
+@@ -99,9 +126,19 @@ interface ElectronBrowser {
+   [Sync]
+   DoGetZoomLevel() => (double result);
+ 
++  [EnableIf=microsoft_enable_remote_host, Sync]
++  MessageToSync(
++    bool internal,
++    int32 web_contents_id,
++    string channel,
++    blink.mojom.CloneableMessage arguments) => (string error, blink.mojom.CloneableMessage result);
++
+   [EnableIf=microsoft_enable_watchdog,Sync]
+   WatchdogOpenLogFile() => (handle file_handle);
+ 
+   [EnableIf=microsoft_enable_watchdog]
+   WatchdogDeleteLogFile();
++
++  [EnableIf=microsoft_enable_remote_host]
++  ConnectToRenderer(int32 target_renderer_id, pending_receiver<electron.mojom.RendererService> receiver) => (int32 sender_id);
+ };
+diff --git a/shell/common/api/electron_api_v8_util.cc b/shell/common/api/electron_api_v8_util.cc
+index ae1aed04726764853eeb24574c353306cb369d0b..975c862c8751d5a64863dfce16b1ad6983390d74 100644
+--- a/shell/common/api/electron_api_v8_util.cc
++++ b/shell/common/api/electron_api_v8_util.cc
+@@ -7,6 +7,7 @@
+ 
+ #include "base/hash/hash.h"
+ #include "electron/buildflags/buildflags.h"
++#include "microsoft/buildflags/buildflags.h"
+ #include "shell/common/api/electron_api_key_weak_map.h"
+ #include "shell/common/gin_converters/content_converter.h"
+ #include "shell/common/gin_converters/gurl_converter.h"
+@@ -103,6 +104,14 @@ void TakeHeapSnapshot(v8::Isolate* isolate) {
+   isolate->GetHeapProfiler()->TakeHeapSnapshot();
+ }
+ 
++#if BUILDFLAG(MICROSOFT_ENABLE_REMOTE_HOST)
++
++void LowMemoryNotification(v8::Isolate* isolate) {
++  isolate->LowMemoryNotification();
++}
++
++#endif
++
+ void RequestGarbageCollectionForTesting(v8::Isolate* isolate) {
+   isolate->RequestGarbageCollectionForTesting(
+       v8::Isolate::GarbageCollectionType::kFullGarbageCollection);
+@@ -175,6 +184,9 @@ void Initialize(v8::Local<v8::Object> exports,
+   dict.SetMethod("clearWeaklyTrackedValues", &ClearWeaklyTrackedValues);
+   dict.SetMethod("weaklyTrackValue", &WeaklyTrackValue);
+ #endif
++#if BUILDFLAG(MICROSOFT_ENABLE_REMOTE_HOST)
++  dict.SetMethod("lowMemoryNotification", &LowMemoryNotification);
++#endif
+ }
+ 
+ }  // namespace
+diff --git a/shell/common/api/features.cc b/shell/common/api/features.cc
+index d030c52646ac29fdaf8036820f15237fab73b118..fec03c81741d4ca739ba60a90e1f95772d3cfc96 100644
+--- a/shell/common/api/features.cc
++++ b/shell/common/api/features.cc
+@@ -3,6 +3,7 @@
+ // found in the LICENSE file.
+ 
+ #include "electron/buildflags/buildflags.h"
++#include "microsoft/buildflags/buildflags.h"
+ #include "printing/buildflags/buildflags.h"
+ #include "shell/common/gin_helper/dictionary.h"
+ #include "shell/common/node_includes.h"
+@@ -69,6 +70,10 @@ bool IsComponentBuild() {
+ #endif
+ }
+ 
++bool IsRemoteHostEnabled() {
++  return BUILDFLAG(MICROSOFT_ENABLE_REMOTE_HOST);
++}
++
+ void Initialize(v8::Local<v8::Object> exports,
+                 v8::Local<v8::Value> unused,
+                 v8::Local<v8::Context> context,
+@@ -89,6 +94,8 @@ void Initialize(v8::Local<v8::Object> exports,
+   dict.SetMethod("isComponentBuild", &IsComponentBuild);
+   dict.SetMethod("isExtensionsEnabled", &IsExtensionsEnabled);
+   dict.SetMethod("isWinDarkModeWindowUiEnabled", &IsWinDarkModeWindowUiEnabled);
++  // microsoft
++  dict.SetMethod("isRemoteHostEnabled", &IsRemoteHostEnabled);
+ }
+ 
+ }  // namespace
+diff --git a/shell/renderer/api/electron_api_ipc_renderer.cc b/shell/renderer/api/electron_api_ipc_renderer.cc
+index f7b626dae551ad4416018827b4022b3e59c2af8a..41f213040683f17574fca91067eac4e6c61e0a19 100644
+--- a/shell/renderer/api/electron_api_ipc_renderer.cc
++++ b/shell/renderer/api/electron_api_ipc_renderer.cc
+@@ -13,6 +13,7 @@
+ #include "gin/handle.h"
+ #include "gin/object_template_builder.h"
+ #include "gin/wrappable.h"
++#include "microsoft/buildflags/buildflags.h"
+ #include "services/service_manager/public/cpp/interface_provider.h"
+ #include "shell/common/api/api.mojom.h"
+ #include "shell/common/gin_converters/blink_converter.h"
+@@ -30,6 +31,10 @@
+ #include "microsoft/src/electron/shell/common/api/watchdog.h"
+ #endif
+ 
++#if BUILDFLAG(MICROSOFT_ENABLE_REMOTE_HOST)
++#include "microsoft/src/electron/shell/renderer/direct_connection_manager.h"
++#endif
++
+ using blink::WebLocalFrame;
+ using content::RenderFrame;
+ 
+@@ -65,15 +70,33 @@ class IPCRenderer : public gin::Wrappable<IPCRenderer>,
+ 
+     render_frame->GetRemoteInterfaces()->GetInterface(
+         electron_browser_remote_.BindNewPipeAndPassReceiver());
++
++#if BUILDFLAG(MICROSOFT_ENABLE_REMOTE_HOST)
++    connection_manager_ =
++        std::make_unique<microsoft::DirectConnectionManager>(render_frame);
++#endif
+   }
+ 
+-  void OnDestruct() override { electron_browser_remote_.reset(); }
++  void OnDestruct() override {
++    electron_browser_remote_.reset();
++
++#if BUILDFLAG(MICROSOFT_ENABLE_REMOTE_HOST)
++    connection_manager_.reset();
++#endif
++  }
+ 
+   void WillReleaseScriptContext(v8::Local<v8::Context> context,
+                                 int32_t world_id) override {
+     if (weak_context_.IsEmpty() ||
+         weak_context_.Get(context->GetIsolate()) == context)
+       electron_browser_remote_.reset();
++
++#if BUILDFLAG(MICROSOFT_ENABLE_REMOTE_HOST)
++    if (weak_context_.IsEmpty() ||
++        weak_context_.Get(context->GetIsolate()) == context) {
++      connection_manager_->Close();
++    }
++#endif
+   }
+ 
+   // gin::Wrappable:
+@@ -82,6 +105,11 @@ class IPCRenderer : public gin::Wrappable<IPCRenderer>,
+     return gin::Wrappable<IPCRenderer>::GetObjectTemplateBuilder(isolate)
+         .SetMethod("send", &IPCRenderer::SendMessage)
+         .SetMethod("sendSync", &IPCRenderer::SendSync)
++#if BUILDFLAG(MICROSOFT_ENABLE_REMOTE_HOST)
++        .SetMethod("sendToRendererSync", &IPCRenderer::SendToRendererSync)
++        .SetMethod("sendToRenderer", &IPCRenderer::SendToRenderer)
++        .SetMethod("connectToRenderer", &IPCRenderer::ConnectToRenderer)
++#endif
+         .SetMethod("sendTo", &IPCRenderer::SendTo)
+         .SetMethod("sendToHost", &IPCRenderer::SendToHost)
+         .SetMethod("invoke", &IPCRenderer::Invoke)
+@@ -234,8 +262,65 @@ class IPCRenderer : public gin::Wrappable<IPCRenderer>,
+     return electron::DeserializeV8Value(isolate, result);
+   }
+ 
++#if BUILDFLAG(MICROSOFT_ENABLE_REMOTE_HOST)
++
++  v8::Local<v8::Value> SendToRendererSync(v8::Isolate* isolate,
++                                          gin_helper::ErrorThrower thrower,
++                                          bool internal,
++                                          int32_t web_contents_id,
++                                          const std::string& channel,
++                                          v8::Local<v8::Value> arguments,
++                                          const std::string& watchdog_api) {
++    if (!electron_browser_remote_) {
++      thrower.ThrowError(kIPCMethodCalledAfterContextReleasedError);
++      return v8::Local<v8::Value>();
++    }
++
++#if BUILDFLAG(MICROSOFT_ENABLE_WATCHDOG)
++    microsoft::Watchdog::BlockingApi blocking_api(watchdog_api);
++#endif
++
++    return connection_manager_->SendToRendererSync(
++        isolate, thrower, internal, web_contents_id, channel,
++        std::move(arguments), electron_browser_remote_);
++  }
++
++  void SendToRenderer(v8::Isolate* isolate,
++                      gin_helper::ErrorThrower thrower,
++                      bool internal,
++                      int32_t web_contents_id,
++                      const std::string& channel,
++                      v8::Local<v8::Value> arguments) {
++    if (!electron_browser_remote_) {
++      thrower.ThrowError(kIPCMethodCalledAfterContextReleasedError);
++      return;
++    }
++
++    connection_manager_->SendToRenderer(
++        isolate, thrower, internal, web_contents_id, channel,
++        std::move(arguments), electron_browser_remote_);
++  }
++
++  void ConnectToRenderer(v8::Isolate* isolate,
++                         gin_helper::ErrorThrower thrower,
++                         int32_t target_web_contents_id) {
++    if (!electron_browser_remote_) {
++      thrower.ThrowError(kIPCMethodCalledAfterContextReleasedError);
++      return;
++    }
++
++    connection_manager_->ConnectToRenderer(electron_browser_remote_,
++                                           target_web_contents_id);
++  }
++
++#endif  // BUILDFLAG(MICROSOFT_ENABLE_REMOTE_HOST)
++
+   v8::Global<v8::Context> weak_context_;
+   mojo::Remote<electron::mojom::ElectronBrowser> electron_browser_remote_;
++
++#if BUILDFLAG(MICROSOFT_ENABLE_REMOTE_HOST)
++  std::unique_ptr<microsoft::DirectConnectionManager> connection_manager_;
++#endif
+ };
+ 
+ gin::WrapperInfo IPCRenderer::kWrapperInfo = {gin::kEmbedderNativeGin};
+diff --git a/shell/renderer/electron_api_service_impl.cc b/shell/renderer/electron_api_service_impl.cc
+index 24682657362a73f9ab98a5e93d00f55ceba2c498..aa80f16dd47ab90cc389c023d1274de569d7a54f 100644
+--- a/shell/renderer/electron_api_service_impl.cc
++++ b/shell/renderer/electron_api_service_impl.cc
+@@ -26,6 +26,10 @@
+ #include "third_party/blink/public/web/web_local_frame.h"
+ #include "third_party/blink/public/web/web_message_port_converter.h"
+ 
++#if BUILDFLAG(MICROSOFT_ENABLE_REMOTE_HOST)
++#include "microsoft/src/electron/shell/renderer/renderer_event.h"
++#endif
++
+ namespace electron {
+ 
+ namespace {
+@@ -88,9 +92,9 @@ void EmitIPCEvent(v8::Local<v8::Context> context,
+                                    v8::MicrotasksScope::kRunMicrotasks);
+ 
+   std::vector<v8::Local<v8::Value>> argv = {
+-      gin::ConvertToV8(isolate, internal), gin::ConvertToV8(isolate, channel),
+-      gin::ConvertToV8(isolate, ports), args,
+-      gin::ConvertToV8(isolate, sender_id)};
++      gin::ConvertToV8(isolate, internal),  gin::ConvertToV8(isolate, channel),
++      gin::ConvertToV8(isolate, ports),     args,
++      gin::ConvertToV8(isolate, sender_id), gin::ConvertToV8(isolate, false)};
+ 
+   InvokeIpcCallback(context, "onMessage", argv);
+ }
+@@ -262,4 +266,49 @@ void ElectronApiServiceImpl::TakeHeapSnapshot(
+   std::move(callback).Run(success);
+ }
+ 
++#if BUILDFLAG(MICROSOFT_ENABLE_REMOTE_HOST)
++
++void ElectronApiServiceImpl::MessageSync(bool internal,
++                                         const std::string& channel,
++                                         blink::CloneableMessage arguments,
++                                         int32_t sender_id,
++                                         MessageSyncCallback callback) {
++  if (!document_created_)
++    return;
++
++  blink::WebLocalFrame* frame = render_frame()->GetWebFrame();
++  if (!frame)
++    return;
++
++  v8::Isolate* isolate = blink::MainThreadIsolate();
++  v8::HandleScope handle_scope(isolate);
++
++  v8::Local<v8::Context> context = renderer_client_->GetContext(frame, isolate);
++  v8::Context::Scope context_scope(context);
++
++  auto native_event = microsoft::RendererEvent::Create(
++      isolate, sender_id, false, std::move(callback));
++  auto event = v8::Local<v8::Object>::Cast(native_event.ToV8());
++  std::vector<v8::Local<v8::Value>> argv = {
++      gin::ConvertToV8(isolate, internal), gin::ConvertToV8(isolate, channel),
++      gin::ConvertToV8(isolate, arguments), gin::ConvertToV8(isolate, event)};
++
++  InvokeIpcCallback(context, "onMessageSync", std::move(argv));
++}
++
++void ElectronApiServiceImpl::ConnectToRenderer(
++    int32_t web_contents_id,
++    mojo::PendingReceiver<mojom::RendererService> receiver,
++    ConnectToRendererCallback callback) {
++  LOG(INFO) << "Request to connect a renderer received for: "
++            << web_contents_id;
++
++  mojo::MakeSelfOwnedReceiver(base::WrapUnique(new microsoft::RendererService(
++                                  render_frame(), renderer_client_)),
++                              std::move(receiver));
++  std::move(callback).Run(true);
++}
++
++#endif
++
+ }  // namespace electron
+diff --git a/shell/renderer/electron_api_service_impl.h b/shell/renderer/electron_api_service_impl.h
+index 8bcc3de2a359fee33af4aeebb28ba2b7e1ff22ca..c524d3922e481d0752ca5d5578b87e201e830a87 100644
+--- a/shell/renderer/electron_api_service_impl.h
++++ b/shell/renderer/electron_api_service_impl.h
+@@ -15,6 +15,15 @@
+ #include "mojo/public/cpp/bindings/associated_receiver.h"
+ #include "mojo/public/cpp/bindings/pending_associated_receiver.h"
+ 
++#include "mojo/public/cpp/bindings/pending_receiver.h"
++#include "mojo/public/cpp/bindings/receiver.h"
++
++#include "microsoft/buildflags/buildflags.h"
++
++#if BUILDFLAG(MICROSOFT_ENABLE_REMOTE_HOST)
++#include "microsoft/src/electron/shell/renderer/renderer_service.h"
++#endif
++
+ namespace electron {
+ 
+ class RendererClientBase;
+@@ -47,6 +56,17 @@ class ElectronApiServiceImpl : public mojom::ElectronRenderer,
+     return weak_factory_.GetWeakPtr();
+   }
+ 
++#if BUILDFLAG(MICROSOFT_ENABLE_REMOTE_HOST)
++  void MessageSync(bool internal,
++                   const std::string& channel,
++                   blink::CloneableMessage arguments,
++                   int32_t sender_id,
++                   MessageSyncCallback callback) override;
++  void ConnectToRenderer(int32_t web_contents_id,
++                         mojo::PendingReceiver<mojom::RendererService>,
++                         ConnectToRendererCallback callback) override;
++#endif
++
+  private:
+   ~ElectronApiServiceImpl() override;
+ 
+diff --git a/typings/internal-ambient.d.ts b/typings/internal-ambient.d.ts
+index 7c5caae24007245df1fc32ec3bfc71e5e1146f0a..54caa4904298447f285b949918371b13c5b77171 100644
+--- a/typings/internal-ambient.d.ts
++++ b/typings/internal-ambient.d.ts
+@@ -5,6 +5,8 @@ declare const BUILDFLAG: (flag: boolean) => boolean;
+ declare const ENABLE_DESKTOP_CAPTURER: boolean;
+ declare const ENABLE_REMOTE_MODULE: boolean;
+ declare const ENABLE_VIEWS_API: boolean;
++// microsoft
++declare const MICROSOFT_ENABLE_REMOTE_HOST: boolean;
+ 
+ declare namespace NodeJS {
+   interface FeaturesBinding {
+@@ -22,6 +24,8 @@ declare namespace NodeJS {
+     isExtensionsEnabled(): boolean;
+     isComponentBuild(): boolean;
+     isWinDarkModeWindowUiEnabled(): boolean;
++    // microsoft
++    isRemoteHostEnabled(): boolean;
+   }
+ 
+   interface IpcRendererBinding {
+@@ -31,6 +35,10 @@ declare namespace NodeJS {
+     sendTo(internal: boolean, sendToAll: boolean, webContentsId: number, channel: string, args: any[]): void;
+     invoke<T>(internal: boolean, channel: string, args: any[]): Promise<{ error: string, result: T }>;
+     postMessage(channel: string, message: any, transferables: MessagePort[]): void;
++    // microsoft
++    sendToRenderer(internal: boolean, webContentsId: number, channel: string, args: any[]): void;
++    sendToRendererSync(internal: boolean, webContentsId: number, channel: string, args: any[], watchdogApi: string): any;
++    connectToRenderer(webContentsId: number): void;
+   }
+ 
+   interface V8UtilBinding {
+@@ -45,6 +53,8 @@ declare namespace NodeJS {
+     clearWeaklyTrackedValues(): void;
+     getWeaklyTrackedValues(): any[];
+     triggerFatalErrorForTesting(): void;
++    // microsoft
++    lowMemoryNotification(): void;
+   }
+ 
+   type DataPipe = {
+@@ -253,3 +263,61 @@ interface TrustedTypePolicyFactory {
+   getPropertyType(tagName: string, property: string, elementNs?: string): StringContext | null;
+   readonly defaultPolicy: TrustedTypePolicy | null;
+ }
++
++// https://github.com/microsoft/TypeScript/pull/38232
++
++interface WeakRef<T extends object> {
++  readonly [Symbol.toStringTag]: "WeakRef";
++
++  /**
++   * Returns the WeakRef instance's target object, or undefined if the target object has been
++   * reclaimed.
++   */
++  deref(): T | undefined;
++}
++
++interface WeakRefConstructor {
++  readonly prototype: WeakRef<any>;
++
++  /**
++   * Creates a WeakRef instance for the given target object.
++   * @param target The target object for the WeakRef instance.
++   */
++  new<T extends object>(target?: T): WeakRef<T>;
++}
++
++declare var WeakRef: WeakRefConstructor;
++
++interface FinalizationRegistry {
++  readonly [Symbol.toStringTag]: "FinalizationRegistry";
++
++  /**
++   * Registers an object with the registry.
++   * @param target The target object to register.
++   * @param heldValue The value to pass to the finalizer for this object. This cannot be the
++   * target object.
++   * @param unregisterToken The token to pass to the unregister method to unregister the target
++   * object. If provided (and not undefined), this must be an object. If not provided, the target
++   * cannot be unregistered.
++   */
++  register(target: object, heldValue: any, unregisterToken?: object): void;
++
++  /**
++   * Unregisters an object from the registry.
++   * @param unregisterToken The token that was used as the unregisterToken argument when calling
++   * register to register the target object.
++   */
++  unregister(unregisterToken: object): void;
++}
++
++interface FinalizationRegistryConstructor {
++  readonly prototype: FinalizationRegistry;
++
++  /**
++   * Creates a finalization registry with an associated cleanup callback
++   * @param cleanupCallback The callback to call after an object in the registry has been reclaimed.
++   */
++  new(cleanupCallback: (heldValue: any) => void): FinalizationRegistry;
++}
++
++declare var FinalizationRegistry: FinalizationRegistryConstructor;

@@ -1,0 +1,9 @@
+parameters:
+  _header: 'AUTHORIZATION: bearer $(System.AccessToken)'
+  _url: 'https://domoreexp.visualstudio.com'
+
+steps:
+- script: |
+    git config --global --unset-all http.${{ parameters._url }}.extraheader
+    git config --global http.${{ parameters._url }}.extraheader "${{ parameters._header }}"
+  displayName: Configure Git access to "${{ parameters._url }}" repos

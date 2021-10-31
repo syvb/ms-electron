@@ -1,0 +1,8 @@
+parameters:
+  _version: 12.14.1
+
+steps:
+- task: NodeTool@0
+  displayName: Use Node.js ${{ parameters._version }}
+  inputs:
+    versionSpec: ${{ parameters._version }}

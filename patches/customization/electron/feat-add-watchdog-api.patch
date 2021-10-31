@@ -1,0 +1,316 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Milan Burda <miburda@microsoft.com>
+Date: Wed, 7 Nov 2018 12:25:30 +0100
+Subject: feat: add Watchdog API
+
+Microsoft patch
+
+diff --git a/docs/api/app.md b/docs/api/app.md
+index 1eed14be5b592301df16db7ca2dc25059a29a1a5..4e8668d15a00081319ef3b6b8e1cf9f912be92e6 100644
+--- a/docs/api/app.md
++++ b/docs/api/app.md
+@@ -398,6 +398,10 @@ Returns:
+   * `exitCode` Integer - The exit code of the process, unless `reason` is
+     `launch-failed`, in which case `exitCode` will be a platform-specific
+     launch failure error code.
++  * `watchdog` Object (optional)
++    * `blockingApi` String
++    * `timeout` Number
++    * `lastPing` Number (optional) - Timestamp.
+ 
+ Emitted when the renderer process unexpectedly dissapears.  This is normally
+ because it was crashed or killed.
+diff --git a/docs/api/process.md b/docs/api/process.md
+index 62fa3c671384e3234f9c6316b6d32c48037585b8..799ac9ebfa115682cd99b28dfb5d8f6d6fb494f0 100644
+--- a/docs/api/process.md
++++ b/docs/api/process.md
+@@ -21,6 +21,8 @@ In sandboxed renderers the `process` object contains only a subset of the APIs:
+ - `getSystemVersion()`
+ - `getCPUUsage()`
+ - `getIOCounters()`
++- `startWatchdog()`
++- `stopWatchdog()`
+ - `argv`
+ - `execPath`
+ - `env`
+@@ -257,3 +259,19 @@ Causes the main thread of the current process hang.
+ 
+ Sets the file descriptor soft limit to `maxDescriptors` or the OS hard
+ limit, whichever is lower for the current process.
++
++### `process.startWatchdog(timeout, [options])`
++
++* `timeout` Integer - Watchdog will terminate the process if the renderer
++   stops responding for longer than this number of milliseconds.
++* `options` Object (optional)
++  * `pingInterval` Number (optional) - If specified and greater than zero, watchdog
++    will post a task on the renderer thread every pingInterval milliseconds.
++  * `usePowerMonitor` Boolean (optional) - If true, watchdog will gracefully
++    suspend itself while the machine is entering or leaving sleep state.
++
++Starts the watchdog.
++
++### `process.stopWatchdog()`
++
++Stops the watchdog.
+diff --git a/docs/api/web-contents.md b/docs/api/web-contents.md
+index a564f59785de0f607422172184b483cd4bd18612..f70b03421b5d5ab78f7fb6339e4eeef46f91f4ef 100644
+--- a/docs/api/web-contents.md
++++ b/docs/api/web-contents.md
+@@ -369,6 +369,10 @@ Returns:
+   * `exitCode` Integer - The exit code of the process, unless `reason` is
+     `launch-failed`, in which case `exitCode` will be a platform-specific
+     launch failure error code.
++  * `watchdog` Object (optional)
++    * `blockingApi` String
++    * `timeout` Number
++    * `lastPing` Number (optional) - Timestamp.
+ 
+ Emitted when the renderer process unexpectedly dissapears.  This is normally
+ because it was crashed or killed.
+diff --git a/shell/browser/api/electron_api_web_contents.cc b/shell/browser/api/electron_api_web_contents.cc
+index 01aa8232dec6a06453a5c1677ca8a68ad010eb41..7a6e3a5f571e3b8cfee5d67edeaf78fd6faeacdc 100644
+--- a/shell/browser/api/electron_api_web_contents.cc
++++ b/shell/browser/api/electron_api_web_contents.cc
+@@ -1125,6 +1125,9 @@ void WebContents::RenderProcessGone(base::TerminationStatus status) {
+       gin_helper::Dictionary::CreateEmpty(isolate());
+   details.Set("reason", status);
+   details.Set("exitCode", web_contents()->GetCrashedErrorCode());
++#if BUILDFLAG(MICROSOFT_ENABLE_WATCHDOG)
++  details.Set("watchdog", watchdog_service_.GetMetadata());
++#endif
+   Emit("render-process-gone", details);
+ }
+ 
+@@ -1372,6 +1375,18 @@ void WebContents::UpdateDraggableRegions(
+     observer.OnDraggableRegionsUpdated(regions);
+ }
+ 
++#if BUILDFLAG(MICROSOFT_ENABLE_WATCHDOG)
++
++void WebContents::WatchdogOpenLogFile(WatchdogOpenLogFileCallback callback) {
++  std::move(callback).Run(watchdog_service_.HandleOpenLogFile());
++}
++
++void WebContents::WatchdogDeleteLogFile() {
++  watchdog_service_.HandleDeleteLogFile();
++}
++
++#endif
++
+ void WebContents::RenderFrameDeleted(
+     content::RenderFrameHost* render_frame_host) {
+   // A WebFrameMain can outlive its RenderFrameHost so we need to mark it as
+diff --git a/shell/browser/api/electron_api_web_contents.h b/shell/browser/api/electron_api_web_contents.h
+index 9d0c58bfa70b01a838eb27edf1f84415a7e94ac4..c827e7d7cc4fce885d5701bf39d5a5e7157e773f 100644
+--- a/shell/browser/api/electron_api_web_contents.h
++++ b/shell/browser/api/electron_api_web_contents.h
+@@ -22,6 +22,7 @@
+ #include "electron/buildflags/buildflags.h"
+ #include "electron/shell/common/api/api.mojom.h"
+ #include "gin/handle.h"
++#include "microsoft/buildflags/buildflags.h"
+ #include "mojo/public/cpp/bindings/receiver_set.h"
+ #include "printing/buildflags/buildflags.h"
+ #include "services/service_manager/public/cpp/binder_registry.h"
+@@ -43,6 +44,10 @@
+ #endif
+ #endif
+ 
++#if BUILDFLAG(MICROSOFT_ENABLE_WATCHDOG)
++#include "microsoft/src/electron/shell/common/api/watchdog.h"
++#endif
++
+ #if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
+ #include "extensions/common/view_type.h"
+ 
+@@ -608,6 +613,11 @@ class WebContents : public gin_helper::TrackableObject<WebContents>,
+   void SetTemporaryZoomLevel(double level) override;
+   void DoGetZoomLevel(DoGetZoomLevelCallback callback) override;
+ 
++#if BUILDFLAG(MICROSOFT_ENABLE_WATCHDOG)
++  void WatchdogOpenLogFile(WatchdogOpenLogFileCallback callback) override;
++  void WatchdogDeleteLogFile() override;
++#endif
++
+   // Called when received a synchronous message from renderer to
+   // get the zoom level.
+   void OnGetZoomLevel(content::RenderFrameHost* frame_host,
+@@ -665,6 +675,10 @@ class WebContents : public gin_helper::TrackableObject<WebContents>,
+   std::map<content::RenderFrameHost*, std::vector<mojo::ReceiverId>>
+       frame_to_receivers_map_;
+ 
++#if BUILDFLAG(MICROSOFT_ENABLE_WATCHDOG)
++  microsoft::Watchdog::Service watchdog_service_{this};
++#endif
++
+   base::WeakPtrFactory<WebContents> weak_factory_;
+ 
+   DISALLOW_COPY_AND_ASSIGN(WebContents);
+diff --git a/shell/browser/electron_browser_client.cc b/shell/browser/electron_browser_client.cc
+index 25818b768d649bfd191c7badd3f50c9aafe579d6..0a8af27fcadb512a072d57ad4e84ed535978c611 100644
+--- a/shell/browser/electron_browser_client.cc
++++ b/shell/browser/electron_browser_client.cc
+@@ -49,6 +49,7 @@
+ #include "content/public/common/web_preferences.h"
+ #include "electron/buildflags/buildflags.h"
+ #include "electron/grit/electron_resources.h"
++#include "microsoft/buildflags/buildflags.h"
+ #include "mojo/public/cpp/bindings/binder_map.h"
+ #include "net/base/escape.h"
+ #include "net/ssl/ssl_cert_request_info.h"
+@@ -167,6 +168,10 @@
+ #include "shell/browser/plugins/plugin_utils.h"
+ #endif
+ 
++#if BUILDFLAG(MICROSOFT_ENABLE_WATCHDOG)
++#include "microsoft/src/electron/shell/common/api/watchdog.h"
++#endif
++
+ #if defined(OS_MACOSX)
+ #include "content/common/mac_helpers.h"
+ #include "content/public/common/child_process_host.h"
+@@ -1149,6 +1154,9 @@ void ElectronBrowserClient::RenderProcessExited(
+     }
+     render_process_host_pids_.erase(host_pid);
+   }
++#if BUILDFLAG(MICROSOFT_ENABLE_WATCHDOG)
++  microsoft::Watchdog::RenderProcessExited(host->GetID());
++#endif
+ }
+ 
+ void OnOpenExternal(const GURL& escaped_url, bool allowed) {
+diff --git a/shell/common/api/api.mojom b/shell/common/api/api.mojom
+index 427ddc11233065e6501dfaf62dd9b99a2e291364..955c4d5404b1466f4221e81e4602147b1c90a7c4 100644
+--- a/shell/common/api/api.mojom
++++ b/shell/common/api/api.mojom
+@@ -98,4 +98,10 @@ interface ElectronBrowser {
+ 
+   [Sync]
+   DoGetZoomLevel() => (double result);
++
++  [EnableIf=microsoft_enable_watchdog,Sync]
++  WatchdogOpenLogFile() => (handle file_handle);
++
++  [EnableIf=microsoft_enable_watchdog]
++  WatchdogDeleteLogFile();
+ };
+diff --git a/shell/common/api/electron_bindings.cc b/shell/common/api/electron_bindings.cc
+index cc5a79010ed1006e265d441de629181b858015e3..5d1bade086bbfeffabaa1ed089af07ad352d47dc 100644
+--- a/shell/common/api/electron_bindings.cc
++++ b/shell/common/api/electron_bindings.cc
+@@ -18,6 +18,7 @@
+ #include "base/threading/thread_restrictions.h"
+ #include "chrome/common/chrome_version.h"
+ #include "electron/electron_version.h"
++#include "microsoft/buildflags/buildflags.h"
+ #include "microsoft/src/electron/shell/common/api/process.h"
+ #include "services/resource_coordinator/public/cpp/memory_instrumentation/global_memory_dump.h"
+ #include "services/resource_coordinator/public/cpp/memory_instrumentation/memory_instrumentation.h"
+@@ -36,6 +37,10 @@
+ #include "shell/common/crash_keys.h"
+ #endif
+ 
++#if BUILDFLAG(MICROSOFT_ENABLE_WATCHDOG)
++#include "microsoft/src/electron/shell/common/api/watchdog.h"
++#endif
++
+ namespace electron {
+ 
+ namespace {
+@@ -62,7 +67,11 @@ ElectronBindings::ElectronBindings(uv_loop_t* loop) {
+   metrics_ = base::ProcessMetrics::CreateCurrentProcessMetrics();
+ }
+ 
+-ElectronBindings::~ElectronBindings() {}
++ElectronBindings::~ElectronBindings() {
++#if BUILDFLAG(MICROSOFT_ENABLE_WATCHDOG)
++  microsoft::Watchdog::Stop();
++#endif
++}
+ 
+ // static
+ void ElectronBindings::BindProcess(v8::Isolate* isolate,
+@@ -162,6 +171,10 @@ void ElectronBindings::Crash() {
+ 
+ // static
+ void ElectronBindings::Hang() {
++#if BUILDFLAG(MICROSOFT_ENABLE_WATCHDOG)
++  microsoft::Watchdog::BlockingApi blocking_api("process.hang()");
++#endif
++
+   for (;;)
+     base::PlatformThread::Sleep(base::TimeDelta::FromSeconds(1));
+ }
+diff --git a/shell/renderer/api/electron_api_ipc_renderer.cc b/shell/renderer/api/electron_api_ipc_renderer.cc
+index a6c8e2a404a93da7d9dc084f86d3bdf2e4da8219..f7b626dae551ad4416018827b4022b3e59c2af8a 100644
+--- a/shell/renderer/api/electron_api_ipc_renderer.cc
++++ b/shell/renderer/api/electron_api_ipc_renderer.cc
+@@ -4,6 +4,7 @@
+ 
+ #include <string>
+ 
++#include "base/strings/stringprintf.h"
+ #include "base/task/post_task.h"
+ #include "base/values.h"
+ #include "content/public/renderer/render_frame.h"
+@@ -25,6 +26,10 @@
+ #include "third_party/blink/public/web/web_local_frame.h"
+ #include "third_party/blink/public/web/web_message_port_converter.h"
+ 
++#if BUILDFLAG(MICROSOFT_ENABLE_WATCHDOG)
++#include "microsoft/src/electron/shell/common/api/watchdog.h"
++#endif
++
+ using blink::WebLocalFrame;
+ using content::RenderFrame;
+ 
+@@ -217,6 +222,12 @@ class IPCRenderer : public gin::Wrappable<IPCRenderer>,
+       return v8::Local<v8::Value>();
+     }
+ 
++#if BUILDFLAG(MICROSOFT_ENABLE_WATCHDOG)
++    microsoft::Watchdog::BlockingApi blocking_api(base::StringPrintf(
++        "%s.sendSync() / %s", internal ? "ipcRendererInternal" : "ipcRenderer",
++        channel.c_str()));
++#endif
++
+     blink::CloneableMessage result;
+     electron_browser_remote_->MessageSync(internal, channel, std::move(message),
+                                           &result);
+diff --git a/shell/renderer/electron_sandboxed_renderer_client.cc b/shell/renderer/electron_sandboxed_renderer_client.cc
+index 157eea11eb1ec1ed2024c3f27239d89180465b78..c39227649136e60e29ca9df0ecef78fb1921cdad 100644
+--- a/shell/renderer/electron_sandboxed_renderer_client.cc
++++ b/shell/renderer/electron_sandboxed_renderer_client.cc
+@@ -11,6 +11,7 @@
+ #include "base/process/process_handle.h"
+ #include "content/public/renderer/render_frame.h"
+ #include "electron/buildflags/buildflags.h"
++#include "microsoft/buildflags/buildflags.h"
+ #include "shell/common/api/electron_bindings.h"
+ #include "shell/common/application_info.h"
+ #include "shell/common/gin_helper/dictionary.h"
+@@ -23,6 +24,10 @@
+ #include "third_party/blink/public/web/web_document.h"
+ #include "third_party/electron_node/src/node_binding.h"
+ 
++#if BUILDFLAG(MICROSOFT_ENABLE_WATCHDOG)
++#include "microsoft/src/electron/shell/common/api/watchdog.h"
++#endif
++
+ namespace electron {
+ 
+ namespace {
+@@ -120,7 +125,11 @@ ElectronSandboxedRendererClient::ElectronSandboxedRendererClient() {
+   metrics_ = base::ProcessMetrics::CreateCurrentProcessMetrics();
+ }
+ 
+-ElectronSandboxedRendererClient::~ElectronSandboxedRendererClient() = default;
++ElectronSandboxedRendererClient::~ElectronSandboxedRendererClient() {
++#if BUILDFLAG(MICROSOFT_ENABLE_WATCHDOG)
++  microsoft::Watchdog::Stop();
++#endif
++}
+ 
+ void ElectronSandboxedRendererClient::InitializeBindings(
+     v8::Local<v8::Object> binding,

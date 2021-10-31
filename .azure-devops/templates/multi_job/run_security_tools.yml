@@ -1,0 +1,36 @@
+# Run security tools on all supported platforms.
+
+parameters:
+- name: buildId
+  type: number
+  default: 0
+- name: condition
+  type: string
+  default: ''
+- name: dependsOn
+  type: object
+  default: ''
+- name: _configs
+  type: object
+  default:
+  - arch: x64
+    platform: mac
+  - arch: arm64
+    platform: windows
+  - arch: x64
+    platform: windows
+  - arch: x86
+    platform: windows
+
+jobs:
+- ${{ each config in parameters._configs }}:
+  - template: ../job/run_security_tools.yml
+    parameters:
+      arch: ${{ config.arch }}
+      ${{ if ne(parameters.buildId, 0) }}:
+        buildId: ${{ parameters.buildId }}
+      ${{ if ne(parameters.condition, '') }}:
+        condition: ${{ parameters.condition }}
+      ${{ if ne(parameters.dependsOn, '') }}:
+        dependsOn: ${{ parameters.dependsOn }}
+      platform: ${{ config.platform }}

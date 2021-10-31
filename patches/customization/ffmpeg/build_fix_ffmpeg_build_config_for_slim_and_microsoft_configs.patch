@@ -1,0 +1,125 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Aleksei Kuzmin <alkuzmin@microsoft.com>
+Date: Tue, 18 Jun 2019 13:59:50 +0200
+Subject: build: fix FFmpeg build config for Slim and Microsoft configs
+
+Microsoft patch
+
+diff --git a/ffmpeg_generated.gni b/ffmpeg_generated.gni
+index 7fc9aee5b5d51580cfb5bb5859ca98c53fee96ac..7bf3521e41033fe6f8aa4a786d40801c2c305736 100644
+--- a/ffmpeg_generated.gni
++++ b/ffmpeg_generated.gni
+@@ -209,7 +209,7 @@ if ((is_mac) || (is_win) || (use_linux_config)) {
+   ]
+ }
+ 
+-if ((current_cpu == "x64" && ffmpeg_branding == "Chrome") || (is_android && current_cpu == "arm" && arm_use_neon && ffmpeg_branding == "Chrome") || (is_android && current_cpu == "arm64" && ffmpeg_branding == "Chrome") || (is_android && current_cpu == "x86" && ffmpeg_branding == "Chrome") || (is_win && ffmpeg_branding == "Chrome") || (use_linux_config && ffmpeg_branding == "Chrome") || (use_linux_config && ffmpeg_branding == "ChromeOS")) {
++if ((current_cpu == "x64" && (ffmpeg_branding == "Chrome" || ffmpeg_branding == "Microsoft" || ffmpeg_branding == "Slim")) || (is_android && current_cpu == "arm" && arm_use_neon && ffmpeg_branding == "Chrome") || (is_android && current_cpu == "arm64" && ffmpeg_branding == "Chrome") || (is_android && current_cpu == "x86" && ffmpeg_branding == "Chrome") || (is_win && (ffmpeg_branding == "Chrome" || ffmpeg_branding == "Microsoft" || ffmpeg_branding == "Slim")) || (use_linux_config && (ffmpeg_branding == "Chrome" || ffmpeg_branding == "Microsoft" || ffmpeg_branding == "Slim")) || (use_linux_config && ffmpeg_branding == "ChromeOS")) {
+   ffmpeg_c_sources += [
+     "libavcodec/aac_ac3_parser.c",
+     "libavcodec/aac_parser.c",
+@@ -231,7 +231,7 @@ if ((current_cpu == "x64" && ffmpeg_branding == "Chrome") || (is_android && curr
+   ]
+ }
+ 
+-if ((is_mac && ffmpeg_branding == "Chrome") || (is_win && ffmpeg_branding == "Chrome") || (use_linux_config && ffmpeg_branding == "Chrome") || (use_linux_config && ffmpeg_branding == "ChromeOS")) {
++if ((is_mac && (ffmpeg_branding == "Chrome" || ffmpeg_branding == "Microsoft" || ffmpeg_branding == "Slim")) || (is_win && (ffmpeg_branding == "Chrome" || ffmpeg_branding == "Microsoft" || ffmpeg_branding == "Slim")) || (use_linux_config && (ffmpeg_branding == "Chrome" || ffmpeg_branding == "Microsoft" || ffmpeg_branding == "Slim")) || (use_linux_config && ffmpeg_branding == "ChromeOS")) {
+   ffmpeg_c_sources += [
+     "libavcodec/cabac.c",
+     "libavcodec/h2645_parse.c",
+@@ -331,7 +331,7 @@ if ((is_mac) || (is_win && current_cpu == "x64") || (is_win && current_cpu == "x
+   ]
+ }
+ 
+-if ((current_cpu == "x64" && ffmpeg_branding == "Chrome") || (is_android && current_cpu == "x86" && ffmpeg_branding == "Chrome") || (is_win && current_cpu == "x86" && ffmpeg_branding == "Chrome") || (use_linux_config && current_cpu == "x64" && ffmpeg_branding == "ChromeOS") || (use_linux_config && current_cpu == "x86" && ffmpeg_branding == "Chrome") || (use_linux_config && current_cpu == "x86" && ffmpeg_branding == "ChromeOS")) {
++if ((current_cpu == "x64" && (ffmpeg_branding == "Chrome" || ffmpeg_branding == "Microsoft" || ffmpeg_branding == "Slim")) || (is_android && current_cpu == "x86" && ffmpeg_branding == "Chrome") || (is_win && current_cpu == "x86" && (ffmpeg_branding == "Chrome" || ffmpeg_branding == "Microsoft" || ffmpeg_branding == "Slim")) || (use_linux_config && current_cpu == "x64" && ffmpeg_branding == "ChromeOS") || (use_linux_config && current_cpu == "x86" && (ffmpeg_branding == "Chrome" || ffmpeg_branding == "Microsoft" || ffmpeg_branding == "Slim")) || (use_linux_config && current_cpu == "x86" && ffmpeg_branding == "ChromeOS")) {
+   ffmpeg_c_sources += [
+     "libavcodec/x86/aacpsdsp_init.c",
+     "libavcodec/x86/mdct15_init.c",
+@@ -345,7 +345,7 @@ if ((is_android && current_cpu == "arm" && arm_use_neon) || (is_android && curre
+   ]
+ }
+ 
+-if ((current_cpu == "x64" && ffmpeg_branding == "Chrome") || (is_win && current_cpu == "x86" && ffmpeg_branding == "Chrome") || (use_linux_config && current_cpu == "x64" && ffmpeg_branding == "ChromeOS") || (use_linux_config && current_cpu == "x86" && ffmpeg_branding == "Chrome") || (use_linux_config && current_cpu == "x86" && ffmpeg_branding == "ChromeOS")) {
++if ((current_cpu == "x64" && (ffmpeg_branding == "Chrome" || ffmpeg_branding == "Microsoft" || ffmpeg_branding == "Slim")) || (is_win && current_cpu == "x86" && (ffmpeg_branding == "Chrome" || ffmpeg_branding == "Microsoft" || ffmpeg_branding == "Slim")) || (use_linux_config && current_cpu == "x64" && ffmpeg_branding == "ChromeOS") || (use_linux_config && current_cpu == "x86" && (ffmpeg_branding == "Chrome" || ffmpeg_branding == "Microsoft" || ffmpeg_branding == "Slim")) || (use_linux_config && current_cpu == "x86" && ffmpeg_branding == "ChromeOS")) {
+   ffmpeg_asm_sources += [
+     "libavcodec/x86/aacpsdsp.asm",
+     "libavcodec/x86/mdct15.asm",
+@@ -468,7 +468,7 @@ if ((is_win && current_cpu == "arm64") || (use_linux_config && current_cpu == "a
+   ]
+ }
+ 
+-if ((is_android && current_cpu == "arm64" && ffmpeg_branding == "Chrome") || (is_win && current_cpu == "arm64" && ffmpeg_branding == "Chrome") || (use_linux_config && current_cpu == "arm64" && ffmpeg_branding == "Chrome") || (use_linux_config && current_cpu == "arm64" && ffmpeg_branding == "ChromeOS")) {
++if ((is_android && current_cpu == "arm64" && ffmpeg_branding == "Chrome") || (is_win && current_cpu == "arm64" && (ffmpeg_branding == "Chrome" || ffmpeg_branding == "Microsoft" || ffmpeg_branding == "Slim")) || (use_linux_config && current_cpu == "arm64" && (ffmpeg_branding == "Chrome" || ffmpeg_branding == "Microsoft" || ffmpeg_branding == "Slim")) || (use_linux_config && current_cpu == "arm64" && ffmpeg_branding == "ChromeOS")) {
+   ffmpeg_c_sources += [
+     "libavcodec/aarch64/aacpsdsp_init_aarch64.c",
+     "libavcodec/aarch64/sbrdsp_init_aarch64.c",
+@@ -479,7 +479,7 @@ if ((is_android && current_cpu == "arm64" && ffmpeg_branding == "Chrome") || (is
+   ]
+ }
+ 
+-if ((is_android && current_cpu == "arm" && arm_use_neon && ffmpeg_branding == "Chrome") || (use_linux_config && current_cpu == "arm" && arm_use_neon && ffmpeg_branding == "Chrome") || (use_linux_config && current_cpu == "arm" && arm_use_neon && ffmpeg_branding == "ChromeOS") || (use_linux_config && current_cpu == "arm" && ffmpeg_branding == "Chrome") || (use_linux_config && current_cpu == "arm" && ffmpeg_branding == "ChromeOS")) {
++if ((is_android && current_cpu == "arm" && arm_use_neon && ffmpeg_branding == "Chrome") || (use_linux_config && current_cpu == "arm" && arm_use_neon && (ffmpeg_branding == "Chrome" || ffmpeg_branding == "Microsoft" || ffmpeg_branding == "Slim")) || (use_linux_config && current_cpu == "arm" && arm_use_neon && ffmpeg_branding == "ChromeOS") || (use_linux_config && current_cpu == "arm" && (ffmpeg_branding == "Chrome" || ffmpeg_branding == "Microsoft" || ffmpeg_branding == "Slim")) || (use_linux_config && current_cpu == "arm" && ffmpeg_branding == "ChromeOS")) {
+   ffmpeg_c_sources += [
+     "libavcodec/arm/aacpsdsp_init_arm.c",
+     "libavcodec/arm/sbrdsp_init_arm.c",
+@@ -501,7 +501,7 @@ if ((is_android && current_cpu == "arm" && arm_use_neon) || (use_linux_config &&
+   ]
+ }
+ 
+-if ((use_linux_config && current_cpu == "arm" && arm_use_neon && ffmpeg_branding == "Chrome") || (use_linux_config && current_cpu == "arm" && arm_use_neon && ffmpeg_branding == "ChromeOS") || (use_linux_config && current_cpu == "arm" && ffmpeg_branding == "Chrome") || (use_linux_config && current_cpu == "arm" && ffmpeg_branding == "ChromeOS")) {
++if ((use_linux_config && current_cpu == "arm" && arm_use_neon && (ffmpeg_branding == "Chrome" || ffmpeg_branding == "Microsoft" || ffmpeg_branding == "Slim")) || (use_linux_config && current_cpu == "arm" && arm_use_neon && ffmpeg_branding == "ChromeOS") || (use_linux_config && current_cpu == "arm" && (ffmpeg_branding == "Chrome" || ffmpeg_branding == "Microsoft" || ffmpeg_branding == "Slim")) || (use_linux_config && current_cpu == "arm" && ffmpeg_branding == "ChromeOS")) {
+   ffmpeg_c_sources += [
+     "libavcodec/arm/h264chroma_init_arm.c",
+     "libavcodec/arm/h264dsp_init_arm.c",
+@@ -512,7 +512,7 @@ if ((use_linux_config && current_cpu == "arm" && arm_use_neon && ffmpeg_branding
+   ]
+ }
+ 
+-if ((is_mac && ffmpeg_branding == "Chrome") || (is_win && current_cpu == "x64" && ffmpeg_branding == "Chrome") || (is_win && current_cpu == "x86" && ffmpeg_branding == "Chrome") || (use_linux_config && current_cpu == "x64" && ffmpeg_branding == "Chrome") || (use_linux_config && current_cpu == "x64" && ffmpeg_branding == "ChromeOS") || (use_linux_config && current_cpu == "x86" && ffmpeg_branding == "Chrome") || (use_linux_config && current_cpu == "x86" && ffmpeg_branding == "ChromeOS")) {
++if ((is_mac && (ffmpeg_branding == "Chrome" || ffmpeg_branding == "Microsoft" || ffmpeg_branding == "Slim")) || (is_win && current_cpu == "x64" && (ffmpeg_branding == "Chrome" || ffmpeg_branding == "Microsoft" || ffmpeg_branding == "Slim")) || (is_win && current_cpu == "x86" && (ffmpeg_branding == "Chrome" || ffmpeg_branding == "Microsoft" || ffmpeg_branding == "Slim")) || (use_linux_config && current_cpu == "x64" && (ffmpeg_branding == "Chrome" || ffmpeg_branding == "Microsoft" || ffmpeg_branding == "Slim")) || (use_linux_config && current_cpu == "x64" && ffmpeg_branding == "ChromeOS") || (use_linux_config && current_cpu == "x86" && (ffmpeg_branding == "Chrome" || ffmpeg_branding == "Microsoft" || ffmpeg_branding == "Slim")) || (use_linux_config && current_cpu == "x86" && ffmpeg_branding == "ChromeOS")) {
+   ffmpeg_c_sources += [
+     "libavcodec/x86/h264_qpel.c",
+     "libavcodec/x86/h264chroma_init.c",
+@@ -545,7 +545,7 @@ if ((use_linux_config && current_cpu == "mips64el" && ffmpeg_branding == "Chrome
+   ]
+ }
+ 
+-if ((is_win && current_cpu == "arm64" && ffmpeg_branding == "Chrome") || (use_linux_config && current_cpu == "arm64" && ffmpeg_branding == "Chrome") || (use_linux_config && current_cpu == "arm64" && ffmpeg_branding == "ChromeOS")) {
++if ((is_win && current_cpu == "arm64" && (ffmpeg_branding == "Chrome" || ffmpeg_branding == "Microsoft" || ffmpeg_branding == "Slim")) || (use_linux_config && current_cpu == "arm64" && (ffmpeg_branding == "Chrome" || ffmpeg_branding == "Microsoft" || ffmpeg_branding == "Slim")) || (use_linux_config && current_cpu == "arm64" && ffmpeg_branding == "ChromeOS")) {
+   ffmpeg_c_sources += [
+     "libavcodec/aarch64/h264chroma_init_aarch64.c",
+     "libavcodec/aarch64/h264dsp_init_aarch64.c",
+@@ -572,7 +572,7 @@ if (use_linux_config && current_cpu == "arm" && arm_use_neon) {
+   ]
+ }
+ 
+-if ((is_android && current_cpu == "arm" && arm_use_neon && ffmpeg_branding == "Chrome") || (use_linux_config && current_cpu == "arm" && arm_use_neon && ffmpeg_branding == "Chrome") || (use_linux_config && current_cpu == "arm" && arm_use_neon && ffmpeg_branding == "ChromeOS")) {
++if ((is_android && current_cpu == "arm" && arm_use_neon && ffmpeg_branding == "Chrome") || (use_linux_config && current_cpu == "arm" && arm_use_neon && (ffmpeg_branding == "Chrome" || ffmpeg_branding == "Microsoft" || ffmpeg_branding == "Slim")) || (use_linux_config && current_cpu == "arm" && arm_use_neon && ffmpeg_branding == "ChromeOS")) {
+   ffmpeg_gas_sources += [
+     "libavcodec/arm/aacpsdsp_neon.S",
+     "libavcodec/arm/sbrdsp_neon.S",
+@@ -609,7 +609,7 @@ if ((use_linux_config && current_cpu == "arm" && arm_use_neon && ffmpeg_branding
+   ]
+ }
+ 
+-if ((use_linux_config && current_cpu == "arm" && arm_use_neon && ffmpeg_branding == "Chrome") || (use_linux_config && current_cpu == "arm" && arm_use_neon && ffmpeg_branding == "ChromeOS")) {
++if ((use_linux_config && current_cpu == "arm" && arm_use_neon && (ffmpeg_branding == "Chrome" || ffmpeg_branding == "Microsoft" || ffmpeg_branding == "Slim")) || (use_linux_config && current_cpu == "arm" && arm_use_neon && ffmpeg_branding == "ChromeOS")) {
+   ffmpeg_gas_sources += [
+     "libavcodec/arm/h264cmc_neon.S",
+     "libavcodec/arm/h264dsp_neon.S",
+diff --git a/ffmpeg_options.gni b/ffmpeg_options.gni
+index 026e95505828b89085dc2612f28f323e43228eea..a2af2fb2a4f62fbb8e7d58d1be4b14402b6411d8 100644
+--- a/ffmpeg_options.gni
++++ b/ffmpeg_options.gni
+@@ -53,7 +53,9 @@ declare_args() {
+ 
+ assert(ffmpeg_branding == "Chromium" ||
+        ffmpeg_branding == "Chrome" ||
+-       ffmpeg_branding == "ChromeOS")
++       ffmpeg_branding == "ChromeOS" ||
++       ffmpeg_branding == "Microsoft" ||
++       ffmpeg_branding == "Slim")
+ 
+ if (current_cpu == "x86") {
+   ffmpeg_arch = "ia32"

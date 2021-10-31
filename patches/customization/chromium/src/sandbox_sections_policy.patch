@@ -1,0 +1,219 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Milan Burda <miburda@microsoft.com>
+Date: Wed, 10 Oct 2018 18:55:46 +0000
+Subject: feat: add SUBSYS_SECTIONS policy (NtOpenSection) to the sandboxing
+ library
+
+Microsoft patch
+
+diff --git a/sandbox/win/BUILD.gn b/sandbox/win/BUILD.gn
+index 2557f5c35725c9264aec9b71eb21acde5fdaaa5a..5479e2d86366e77650895ea0e94c4adffa3db6c7 100644
+--- a/sandbox/win/BUILD.gn
++++ b/sandbox/win/BUILD.gn
+@@ -151,6 +151,15 @@ static_library("sandbox") {
+     "src/window.h",
+   ]
+ 
++  sources += [
++    "//microsoft/src/sandbox/win/section_dispatcher.cc",
++    "//microsoft/src/sandbox/win/section_dispatcher.h",
++    "//microsoft/src/sandbox/win/section_interception.cc",
++    "//microsoft/src/sandbox/win/section_interception.h",
++    "//microsoft/src/sandbox/win/section_policy.cc",
++    "//microsoft/src/sandbox/win/section_policy.h",
++  ]
++
+   if (current_cpu == "x64" || current_cpu == "arm64") {
+     sources += [
+       "src/interceptors_64.cc",
+diff --git a/sandbox/win/src/interceptors.h b/sandbox/win/src/interceptors.h
+index 5788614707b9e5643a82b7f97e9f3178a532822d..258c349fc984d44f8a744ce7f952cf00836b4aba 100644
+--- a/sandbox/win/src/interceptors.h
++++ b/sandbox/win/src/interceptors.h
+@@ -42,6 +42,8 @@ enum InterceptorId {
+   // Sync dispatcher:
+   CREATE_EVENT_ID,
+   OPEN_EVENT_ID,
++  // Sections dispatcher:
++  OPEN_SECTION_ID,
+   // Process mitigations Win32k dispatcher:
+   GDIINITIALIZE_ID,
+   GETSTOCKOBJECT_ID,
+diff --git a/sandbox/win/src/interceptors_64.cc b/sandbox/win/src/interceptors_64.cc
+index 0ac2671fcc4a0bd5bd56930fc96f67e9e80fd63e..f71525c885d307da886cfb7f8189854a0ef882fc 100644
+--- a/sandbox/win/src/interceptors_64.cc
++++ b/sandbox/win/src/interceptors_64.cc
+@@ -17,6 +17,8 @@
+ #include "sandbox/win/src/sync_interception.h"
+ #include "sandbox/win/src/target_interceptions.h"
+ 
++#include "microsoft/src/sandbox/win/section_interception.h"
++
+ namespace sandbox {
+ 
+ SANDBOX_INTERCEPT NtExports g_nt;
+@@ -333,6 +335,18 @@ TargetNtOpenEvent64(PHANDLE event_handle,
+ 
+ // -----------------------------------------------------------------------
+ 
++SANDBOX_INTERCEPT NTSTATUS WINAPI
++TargetNtOpenSection64(PHANDLE section_handle,
++                      ACCESS_MASK desired_access,
++                      POBJECT_ATTRIBUTES object_attributes) {
++  NtOpenSectionFunction orig_fn =
++      reinterpret_cast<NtOpenSectionFunction>(g_originals[OPEN_SECTION_ID]);
++  return TargetNtOpenSection(orig_fn, section_handle, desired_access,
++                             object_attributes);
++}
++
++// -----------------------------------------------------------------------
++
+ SANDBOX_INTERCEPT BOOL WINAPI TargetGdiDllInitialize64(HANDLE dll,
+                                                        DWORD reason) {
+   GdiDllInitializeFunction orig_fn =
+diff --git a/sandbox/win/src/interceptors_64.h b/sandbox/win/src/interceptors_64.h
+index f34627dcd2a91e83f9d86608f957d3f67274ead2..dfd73c703dd8eebb146d2f556aafcae879b81b2f 100644
+--- a/sandbox/win/src/interceptors_64.h
++++ b/sandbox/win/src/interceptors_64.h
+@@ -223,6 +223,15 @@ TargetNtOpenEvent64(PHANDLE event_handle,
+                     ACCESS_MASK desired_access,
+                     POBJECT_ATTRIBUTES object_attributes);
+ 
++// -----------------------------------------------------------------------
++// Interceptors handled by the sections dispatcher.
++
++// Interception of NtOpenSection on the child process.
++SANDBOX_INTERCEPT NTSTATUS WINAPI
++TargetNtOpenSection64(PHANDLE section_handle,
++                      ACCESS_MASK desired_access,
++                      POBJECT_ATTRIBUTES object_attributes);
++
+ // -----------------------------------------------------------------------
+ // Interceptors handled by the process mitigations win32k lockdown code.
+ 
+diff --git a/sandbox/win/src/ipc_tags.h b/sandbox/win/src/ipc_tags.h
+index c2fea44a96129fa12420fae801311b5560d762c1..634a22b0355b28dc05c175d8bc47a7f801927df3 100644
+--- a/sandbox/win/src/ipc_tags.h
++++ b/sandbox/win/src/ipc_tags.h
+@@ -26,6 +26,7 @@ enum class IpcTag {
+   CREATEPROCESSW,
+   CREATEEVENT,
+   OPENEVENT,
++  NTOPENSECTION,
+   NTCREATEKEY,
+   NTOPENKEY,
+   GDI_GDIDLLINITIALIZE,
+diff --git a/sandbox/win/src/policy_params.h b/sandbox/win/src/policy_params.h
+index dbab8307d42fc617ddc74c7691b56d926f7eee19..ec76097ba9f9cc02e065e14e24587bbc39a3a6b6 100644
+--- a/sandbox/win/src/policy_params.h
++++ b/sandbox/win/src/policy_params.h
+@@ -49,6 +49,12 @@ POLPARAMS_BEGIN(OpenEventParams)
+   POLPARAM(ACCESS)
+ POLPARAMS_END(OpenEventParams)
+ 
++// Policy parameters for open section.
++POLPARAMS_BEGIN(OpenSectionParams)
++  POLPARAM(NAME)
++  POLPARAM(ACCESS)
++POLPARAMS_END(OpenSectionParams)
++
+ // Policy Parameters for reg open / create.
+ POLPARAMS_BEGIN(OpenKey)
+   POLPARAM(NAME)
+diff --git a/sandbox/win/src/sandbox_policy.h b/sandbox/win/src/sandbox_policy.h
+index 57a12d77aa22b2bdaa215b737492dabda7244643..e41e7ac08d021fb34ad05327d0c5108152496131 100644
+--- a/sandbox/win/src/sandbox_policy.h
++++ b/sandbox/win/src/sandbox_policy.h
+@@ -31,6 +31,7 @@ class TargetPolicy {
+     SUBSYS_PROCESS,          // Creation of child processes.
+     SUBSYS_REGISTRY,         // Creation and opening of registry keys.
+     SUBSYS_SYNC,             // Creation of named sync objects.
++    SUBSYS_SECTIONS,         // Creation of named sections.
+     SUBSYS_WIN32K_LOCKDOWN,  // Win32K Lockdown related policy.
+     SUBSYS_SIGNED_BINARY     // Signed binary policy.
+   };
+@@ -54,6 +55,8 @@ class TargetPolicy {
+                            // the sandboxed application is at least INTERACTIVE.
+     EVENTS_ALLOW_ANY,      // Allows the creation of an event with full access.
+     EVENTS_ALLOW_READONLY,  // Allows opening an even with synchronize access.
++    SECTIONS_ALLOW_ANY,     // Allows opening a section with full access.
++    SECTIONS_ALLOW_READONLY,// Allows opening a section with readonly access.
+     REG_ALLOW_READONLY,     // Allows readonly access to a registry key.
+     REG_ALLOW_ANY,          // Allows read and write access to a registry key.
+     FAKE_USER_GDI_INIT,     // Fakes user32 and gdi32 initialization. This can
+diff --git a/sandbox/win/src/sandbox_policy_base.cc b/sandbox/win/src/sandbox_policy_base.cc
+index 3d055248c01314923811603c492f2efcd839d50e..d97a7e6fc0842d11a9d3624ae21714f429a1c488 100644
+--- a/sandbox/win/src/sandbox_policy_base.cc
++++ b/sandbox/win/src/sandbox_policy_base.cc
+@@ -38,6 +38,8 @@
+ #include "sandbox/win/src/top_level_dispatcher.h"
+ #include "sandbox/win/src/window.h"
+ 
++#include "microsoft/src/sandbox/win/section_policy.h"
++
+ namespace {
+ 
+ // The standard windows size for one memory page.
+@@ -745,6 +747,13 @@ ResultCode PolicyBase::AddRuleInternal(SubSystem subsystem,
+       }
+       break;
+     }
++    case SUBSYS_SECTIONS: {
++      if (!SectionPolicy::GenerateRules(pattern, semantics, policy_maker_)) {
++        NOTREACHED();
++        return SBOX_ERROR_BAD_PARAMS;
++      }
++      break;
++    }
+     case SUBSYS_PROCESS: {
+       if (lockdown_level_ < USER_INTERACTIVE &&
+           TargetPolicy::PROCESS_ALL_EXEC == semantics) {
+diff --git a/sandbox/win/src/sandbox_policy_diagnostic.cc b/sandbox/win/src/sandbox_policy_diagnostic.cc
+index d0c6c67e3dab2ef67e44e97a05cfb882ed202eb8..68dd7877e29cc7056daf7b49d7694e6b5f28c3c4 100644
+--- a/sandbox/win/src/sandbox_policy_diagnostic.cc
++++ b/sandbox/win/src/sandbox_policy_diagnostic.cc
+@@ -158,6 +158,8 @@ std::string GetIpcTagAsString(IpcTag service) {
+       return "CreateEvent";
+     case IpcTag::OPENEVENT:
+       return "OpenEvent";
++    case IpcTag::NTOPENSECTION:
++      return "NtOpenSection";
+     case IpcTag::NTCREATEKEY:
+       return "NtCreateKey";
+     case IpcTag::NTOPENKEY:
+diff --git a/sandbox/win/src/top_level_dispatcher.cc b/sandbox/win/src/top_level_dispatcher.cc
+index e34afa30e2978cc84eeb016553fb384fee6effc8..a26ba26fa5fce096be25eec7f6911f088757d5af 100644
+--- a/sandbox/win/src/top_level_dispatcher.cc
++++ b/sandbox/win/src/top_level_dispatcher.cc
+@@ -22,6 +22,8 @@
+ #include "sandbox/win/src/signed_dispatcher.h"
+ #include "sandbox/win/src/sync_dispatcher.h"
+ 
++#include "microsoft/src/sandbox/win/section_dispatcher.h"
++
+ namespace sandbox {
+ 
+ TopLevelDispatcher::TopLevelDispatcher(PolicyBase* policy) : policy_(policy) {
+@@ -56,6 +58,10 @@ TopLevelDispatcher::TopLevelDispatcher(PolicyBase* policy) : policy_(policy) {
+   ipc_targets_[static_cast<size_t>(IpcTag::OPENEVENT)] = dispatcher;
+   sync_dispatcher_.reset(dispatcher);
+ 
++  dispatcher = new SectionDispatcher(policy_);
++  ipc_targets_[static_cast<size_t>(IpcTag::NTOPENSECTION)] = dispatcher;
++  section_dispatcher_.reset(dispatcher);
++
+   dispatcher = new RegistryDispatcher(policy_);
+   ipc_targets_[static_cast<size_t>(IpcTag::NTCREATEKEY)] = dispatcher;
+   ipc_targets_[static_cast<size_t>(IpcTag::NTOPENKEY)] = dispatcher;
+diff --git a/sandbox/win/src/top_level_dispatcher.h b/sandbox/win/src/top_level_dispatcher.h
+index b440d86f1df5be51d12041f1063c27f0ffea72a8..4b25c258fd3def8bfbc0841125d6fe77adcf6706 100644
+--- a/sandbox/win/src/top_level_dispatcher.h
++++ b/sandbox/win/src/top_level_dispatcher.h
+@@ -39,6 +39,7 @@ class TopLevelDispatcher : public Dispatcher {
+   std::unique_ptr<Dispatcher> named_pipe_dispatcher_;
+   std::unique_ptr<Dispatcher> thread_process_dispatcher_;
+   std::unique_ptr<Dispatcher> sync_dispatcher_;
++  std::unique_ptr<Dispatcher> section_dispatcher_;
+   std::unique_ptr<Dispatcher> registry_dispatcher_;
+   std::unique_ptr<Dispatcher> handle_dispatcher_;
+   std::unique_ptr<Dispatcher> process_mitigations_win32k_dispatcher_;

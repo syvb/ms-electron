@@ -1,0 +1,29 @@
+# Build agents reuse build directories and don't clean them up for us.
+
+parameters:
+- name: platform
+  type: string
+  values: ['linux', 'mac', 'mas', 'windows']
+- name: _directoriesToClean
+  type: object
+  default:
+  - $(Build.ArtifactStagingDirectory)
+  - $(Build.BinariesDirectory)
+  - $(Build.SourcesDirectory)
+
+steps:
+# The "Delete Files" task is too slow for a simple directory clean-up.
+# https://docs.microsoft.com/en-us/azure/devops/pipelines/tasks/utility/delete-files?view=vsts
+- ${{ each directory in parameters._directoriesToClean }}:
+  - ${{ if in(parameters.platform, 'linux', 'mac', 'mas') }}:
+    - bash: |
+        if [ "${{ directory }}" != "" ]; then
+          shopt -s dotglob
+          rm -rf '${{ directory }}'/*
+          shopt -u dotglob
+        fi
+      displayName: Clean up ${{ directory }}
+
+  - ${{ if eq(parameters.platform, 'windows') }}:
+    - powershell: Remove-Item -Recurse -Force ${{ directory }}\* -ErrorAction Ignore
+      displayName: Clean up ${{ directory }}

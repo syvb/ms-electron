@@ -1,0 +1,203 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Andrey Belenko <anbelen@microsoft.com>
+Date: Fri, 20 Nov 2020 23:04:03 +0100
+Subject: feat: skip CORS preflights to select first-party destinations
+
+Skip CORS preflights to select first-party destinations
+
+diff --git a/services/network/public/cpp/BUILD.gn b/services/network/public/cpp/BUILD.gn
+index 8447695610ed4b7c15211451126add360f190451..b4df7922ab87ce3f074f5e2ed09eb127a0114afd 100644
+--- a/services/network/public/cpp/BUILD.gn
++++ b/services/network/public/cpp/BUILD.gn
+@@ -138,6 +138,7 @@ jumbo_component("cpp") {
+     "//components/prefs",
+     "//ipc",
+     "//services/proxy_resolver/public/mojom",
++    "//microsoft/buildflags",
+   ]
+ 
+   defines = [ "IS_NETWORK_CPP_IMPL" ]
+diff --git a/services/network/public/cpp/cors/preflight_cache.cc b/services/network/public/cpp/cors/preflight_cache.cc
+index 0049fa1bc3d59e6c7de623bc2b31f26fb8ad31a4..dd4c7144494452e1307dd60ae5fc81b60043a43b 100644
+--- a/services/network/public/cpp/cors/preflight_cache.cc
++++ b/services/network/public/cpp/cors/preflight_cache.cc
+@@ -7,7 +7,9 @@
+ #include <iterator>
+ 
+ #include "base/metrics/histogram_macros.h"
++#include "base/command_line.h"
+ #include "base/rand_util.h"
++#include "base/strings/string_number_conversions.h"
+ #include "base/time/time.h"
+ #include "url/gurl.h"
+ 
+@@ -32,13 +34,89 @@ enum class CacheMetric {
+   kMaxValue = kStale,
+ };
+ 
++#if BUILDFLAG(MICROSOFT_CORS_SKIP_PREFLIGHT)
++template <typename T, size_t N>
++static constexpr size_t countof(T const (&)[N]) {
++  return N;
++}
++#endif // BUILDFLAG(MICROSOFT_CORS_SKIP_PREFLIGHT)
++
++#if BUILDFLAG(MICROSOFT_CORS_SKIP_PREFLIGHT)
++static struct {
++    const char* origin; const char* target; const uint64_t flag;
++} cors_should_skip_list[] = {
++    { "https://teams.microsoft.com",    "teams.microsoft.com",    1ULL <<  0 },
++    { "https://teams.microsoft.com",    "office.com",             1ULL <<  1 },
++    { "https://teams.microsoft.com",    "sharepoint.com",         1ULL <<  2 },
++    { "https://teams.microsoft.com",    "skype.com",              1ULL <<  3 },
++
++    { "https://gov.teams.microsoft.us", "teams.microsoft.us",     1ULL <<  8 },
++    { "https://gov.teams.microsoft.us", "teams.microsoft.com",    1ULL <<  9 },
++    { "https://gov.teams.microsoft.us", "office.com",             1ULL << 10 },
++    { "https://gov.teams.microsoft.us", "sharepoint.com",         1ULL << 11 },
++    { "https://gov.teams.microsoft.us", "skype.com",              1ULL << 12 },
++    { "https://gov.teams.microsoft.us", "office365.us",           1ULL << 13 },
++
++    { "https://dod.teams.microsoft.us", "teams.microsoft.us",     1ULL << 16 },
++    { "https://dod.teams.microsoft.us", "teams.microsoft.com",    1ULL << 17 },
++    { "https://dod.teams.microsoft.us", "office.com",             1ULL << 18 },
++    { "https://dod.teams.microsoft.us", "sharepoint.com",         1ULL << 19 },
++    { "https://dod.teams.microsoft.us", "skype.com",              1ULL << 20 },
++    { "https://dod.teams.microsoft.us", "office365.us",           1ULL << 21 },
++
++    { "https://local.teams.office.com", "local.teams.office.com", 1ULL << 24 },
++    { "https://local.teams.office.com", "teams.microsoft.com",    1ULL << 25 },
++    { "https://local.teams.office.com", "office.com",             1ULL << 26 },
++    { "https://local.teams.office.com", "sharepoint.com",         1ULL << 27 },
++    { "https://local.teams.office.com", "skype.com",              1ULL << 28 },
++
++    { "https://teams.live.com",         "teams.live.com",         1ULL << 32 },
++    { "https://teams.live.com",         "office.com",             1ULL << 33 },
++    { "https://teams.live.com",         "sharepoint.com",         1ULL << 34 },
++    { "https://teams.live.com",         "skype.com",              1ULL << 35 }
++};
++#endif // BUILDFLAG(MICROSOFT_CORS_SKIP_PREFLIGHT)
++
+ void ReportCacheMetric(CacheMetric metric) {
+   UMA_HISTOGRAM_ENUMERATION("Net.Cors.PreflightCacheResult", metric);
+ }
+ 
+ }  // namespace
+ 
++#if BUILDFLAG(MICROSOFT_CORS_SKIP_PREFLIGHT)
++const char kMsTeamsLessCors[] = "ms-teams-less-cors";
++#endif // BUILDFLAG(MICROSOFT_CORS_SKIP_PREFLIGHT)
++
++#if BUILDFLAG(MICROSOFT_CORS_SKIP_PREFLIGHT)
++PreflightCache::PreflightCache() {
++  if (!base::CommandLine::ForCurrentProcess()->HasSwitch(kMsTeamsLessCors)) {
++    return;
++  }
++
++  auto cors_skip_mask_ascii =
++    base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(kMsTeamsLessCors);
++  
++  uint64_t cors_skip_mask;
++  if (!base::StringToUint64(cors_skip_mask_ascii, &cors_skip_mask)) {
++    return;
++  }
++
++  for (size_t i = 0; i < countof(cors_should_skip_list); i++) {
++    const auto item = cors_should_skip_list[i];
++    if (cors_skip_mask & item.flag) {
++      preflight_skip_list_.AddAllowListEntryForOrigin(
++        url::Origin::Create(GURL(item.origin)),
++        "https", item.target, 0,
++        network::mojom::CorsDomainMatchMode::kAllowSubdomains,
++        network::mojom::CorsPortMatchMode::kAllowAnyPort,
++        network::mojom::CorsOriginAccessMatchPriority::kDefaultPriority);
++    }
++  }
++}
++#else
+ PreflightCache::PreflightCache() = default;
++#endif // BUILDFLAG(MICROSOFT_CORS_SKIP_PREFLIGHT)
++
+ PreflightCache::~PreflightCache() = default;
+ 
+ void PreflightCache::AppendEntry(
+@@ -67,6 +145,16 @@ void PreflightCache::AppendEntry(
+   cache_[key] = std::move(preflight_result);
+ }
+ 
++#if BUILDFLAG(MICROSOFT_CORS_SKIP_PREFLIGHT)
++bool PreflightCache::ShouldSkipPreflightCheck(
++    const url::Origin& origin,
++    const GURL& url) {  
++  OriginAccessList::AccessState result = preflight_skip_list_.CheckAccessState(origin, url);
++  return result == OriginAccessList::AccessState::kAllowed;
++}
++#endif // BUILDFLAG(MICROSOFT_CORS_SKIP_PREFLIGHT)
++
++
+ bool PreflightCache::CheckIfRequestCanSkipPreflight(
+     const url::Origin& origin,
+     const GURL& url,
+@@ -75,6 +163,13 @@ bool PreflightCache::CheckIfRequestCanSkipPreflight(
+     const std::string& method,
+     const net::HttpRequestHeaders& request_headers,
+     bool is_revalidating) {
++
++#if BUILDFLAG(MICROSOFT_CORS_SKIP_PREFLIGHT)
++  if (ShouldSkipPreflightCheck(origin, url)) {
++    return true;
++  }
++#endif // BUILDFLAG(MICROSOFT_CORS_SKIP_PREFLIGHT)
++
+   // Check if the entry exists in the cache.
+   auto key = std::make_tuple(origin, url.spec(), network_isolation_key);
+   auto cache_entry = cache_.find(key);
+diff --git a/services/network/public/cpp/cors/preflight_cache.h b/services/network/public/cpp/cors/preflight_cache.h
+index 1d357965b569972e97b64dc1cdc2ec22b20d24a5..506fcc2aa407099218f840c17ea88105eb895de3 100644
+--- a/services/network/public/cpp/cors/preflight_cache.h
++++ b/services/network/public/cpp/cors/preflight_cache.h
+@@ -12,8 +12,10 @@
+ 
+ #include "base/component_export.h"
+ #include "base/macros.h"
++#include "microsoft/buildflags/buildflags.h"
+ #include "net/base/network_isolation_key.h"
+ #include "net/http/http_request_headers.h"
++#include "services/network/public/cpp/cors/origin_access_list.h"
+ #include "services/network/public/cpp/cors/preflight_result.h"
+ #include "services/network/public/mojom/fetch_api.mojom-shared.h"
+ #include "url/origin.h"
+@@ -24,6 +26,10 @@ namespace network {
+ 
+ namespace cors {
+ 
++#if BUILDFLAG(MICROSOFT_CORS_SKIP_PREFLIGHT)
++extern const char kMsTeamsLessCors[];
++#endif // BUILDFLAG(MICROSOFT_CORS_SKIP_PREFLIGHT)
++
+ // A class to implement CORS-preflight cache that is defined in the fetch spec,
+ // https://fetch.spec.whatwg.org/#concept-cache.
+ // TODO(toyoshim): We may consider to clear all cached entries when users'
+@@ -61,6 +67,10 @@ class COMPONENT_EXPORT(NETWORK_CPP) PreflightCache final {
+  private:
+   void MayPurge(size_t max_entries, size_t purge_unit);
+ 
++#if BUILDFLAG(MICROSOFT_CORS_SKIP_PREFLIGHT)
++  bool ShouldSkipPreflightCheck(const url::Origin& origin, const GURL& url);
++#endif // BUILDFLAG(MICROSOFT_CORS_SKIP_PREFLIGHT)
++
+   // A map for caching. This is accessed by a tuple of origin,
+   // url string, and NetworkIsolationKey to find a cached entry.
+   std::map<std::tuple<url::Origin /* origin */,
+@@ -68,6 +78,11 @@ class COMPONENT_EXPORT(NETWORK_CPP) PreflightCache final {
+                       net::NetworkIsolationKey /* NIK */>,
+            std::unique_ptr<PreflightResult>>
+       cache_;
++    
++#if BUILDFLAG(MICROSOFT_CORS_SKIP_PREFLIGHT)
++  // Manages origins for which preflights are skipped
++  OriginAccessList preflight_skip_list_;
++#endif // BUILDFLAG(MICROSOFT_CORS_SKIP_PREFLIGHT)
+ 
+   DISALLOW_COPY_AND_ASSIGN(PreflightCache);
+ };

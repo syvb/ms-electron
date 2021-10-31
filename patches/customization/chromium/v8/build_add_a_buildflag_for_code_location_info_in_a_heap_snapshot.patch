@@ -1,0 +1,42 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Aleksei Kuzmin <alkuzmin@microsoft.com>
+Date: Thu, 23 Jul 2020 16:39:29 +0200
+Subject: build: add a buildflag for code location info in a heap snapshot
+
+To speed up heap shapshots in Teams tests.
+
+diff --git a/BUILD.gn b/BUILD.gn
+index 7040084426fe8e4677712a9651717b440b001244..1c51b86508f7170c8caec05d846ce5e706f924bb 100644
+--- a/BUILD.gn
++++ b/BUILD.gn
+@@ -3598,6 +3598,7 @@ v8_source_set("v8_base_without_compiler") {
+     ":v8_shared_internal_headers",
+     ":v8_tracing",
+     ":v8_version",
++    "//microsoft/buildflags",
+     "src/inspector:inspector",
+   ]
+ 
+diff --git a/src/profiler/heap-snapshot-generator.cc b/src/profiler/heap-snapshot-generator.cc
+index 022d6e647e3390dfcc107c7a2d8c8afdcb860928..092b6ca1449c14c64feac48262683ba6c0a0911b 100644
+--- a/src/profiler/heap-snapshot-generator.cc
++++ b/src/profiler/heap-snapshot-generator.cc
+@@ -6,6 +6,7 @@
+ 
+ #include <utility>
+ 
++#include "microsoft/buildflags/buildflags.h"
+ #include "src/api/api-inl.h"
+ #include "src/codegen/assembler-inl.h"
+ #include "src/debug/debug.h"
+@@ -1526,8 +1527,10 @@ bool V8HeapExplorer::IterateAndExtractReferences(
+       DCHECK(!visited_fields_[i]);
+     }
+ 
++#if BUILDFLAG(MICROSOFT_ENABLE_CODE_LOCATION_IN_V8_HEAP_SNAPSHOT)
+     // Extract location for specific object types
+     ExtractLocation(entry, obj);
++#endif
+ 
+     if (!progress_->ProgressReport(false)) interrupted = true;
+   }

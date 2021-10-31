@@ -1,0 +1,32 @@
+# Log an Azure Pipelines command.
+# https://docs.microsoft.com/en-us/azure/devops/pipelines/scripts/logging-commands?view=azure-devops&tabs=bash
+
+parameters:
+- name: action
+  type: string
+- name: condition
+  type: string
+  default: ''
+- name: displayName
+  type: string
+- name: message
+  type: string
+  default: ''
+- name: properties
+  type: object
+  default: []
+
+steps:
+# (alkuzmin) A simple "script: echo <...>" could be used here,
+# but quotation marks have to be used to properly to pass a variable value,
+# and those marks get appended to the value on Windows.
+# A Python script is slightly more wordy option but it works correctly everywhere.
+- task: PythonScript@0
+  displayName: ${{ parameters.displayName }}
+  ${{ if ne(parameters.condition, '') }}:
+    condition: ${{ parameters.condition }}
+  inputs:
+    scriptSource: inline
+    script: |
+      from __future__ import print_function
+      print(r"##vso[${{ parameters.action }} ${{ join(';', parameters.properties) }}]${{ parameters.message }}")

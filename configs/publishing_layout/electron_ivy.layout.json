@@ -1,0 +1,63 @@
+{
+  "layout": [
+    {
+      "electron-${platform}-${arch}/${branch}/${buildid}/electron.d.ts": "electron windows x64/electron.d.ts"
+    },
+    {
+      "electron-${platform}-${arch}/${branch}/${buildid}/dependencies.txt": "electron meta data/dependencies.txt"
+    },
+    {
+      "electron-${platform}-${arch}/${branch}/${buildid}/electron.zip": "electron ${platform} ${arch}/dist.zip"
+    },
+    {
+      "electron-${platform}-${arch}/${branch}/${buildid}/electron-dbg.zip": "electron ${platform} ${arch}/electron-dbg.zip",
+      "__filter__": {"platform": "linux"}
+    },
+    {
+      "electron-${platform}-${arch}/${branch}/${buildid}/electron-dsym.zip": "electron ${platform} ${arch}/dsym.zip",
+      "__filter__": {"platform": "mac"}
+    },
+    {
+      "electron-${platform}-${arch}/${branch}/${buildid}/electron-pdb.zip": "electron ${platform} ${arch}/pdb.zip",
+      "__filter__": {"platform": "windows"}
+    },
+    {
+      "electron-${platform}-${arch}/${branch}/${buildid}/electron-symbols.zip": "electron ${platform} ${arch}/symbols.zip"
+    },
+    {
+      "electron-${platform}-${arch}/${branch}/${buildid}/ffmpeg.zip": "ffmpeg ${platform}/${arch}/ffmpeg.zip"
+    },
+    {
+      "electron-${platform}-${arch}/${branch}/${buildid}/node_headers.tar.gz": "electron ${platform} ${arch}/node_headers.tar.gz"
+    },
+    {
+      "electron-${platform}-${arch}/${branch}/${buildid}/node.lib": "electron ${platform} ${arch}/electron.lib",
+      "__filter__": {"platform": "windows"}
+    },
+    {
+      "electron-${platform}-${arch}/${branch}/${buildid}/third-party_attributions.txt": "electron meta data/third-party_attributions.txt"
+    },
+    {
+      "electron.lib.${arch}/${branch}/${buildid}/node.lib": "electron ${platform} ${arch}/electron.lib",
+      "__filter__": {"platform": "windows"}
+    },
+    {
+      "electron.headers/${branch}/${buildid}/node_headers.tar.gz": "electron windows x64/node_headers.tar.gz"
+    },
+    {
+      "electron.typings/${branch}/${buildid}/electron.d.ts": "electron windows x64/electron.d.ts"
+    },
+    {
+      "ffmpeg-${platform}-${arch}/${branch}/${buildid}/ffmpeg.zip": "ffmpeg ${platform}/${arch}/ffmpeg.zip"
+    }
+  ],
+  "mapping": {
+    "platform": {
+      "windows": "win",
+      "linux": "lin"
+    },
+    "arch": {
+      "x86": "ia32"
+    }
+  }
+}

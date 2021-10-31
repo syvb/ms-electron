@@ -1,0 +1,18 @@
+# Captures text written to stdout to a job variable.
+# Requires Python.
+
+parameters:
+  command: ''  # Command to execute in a command line. Make sure it doesn't end with a new line character.
+  failOnStderr: true  # {true, false}
+  variable: ''  # A name of a variable to save stdout to.
+  workingDirectory: $(Build.SourcesDirectory)
+
+steps:
+- script: >
+    ${{ parameters.command }}
+    | python $(Build.SourcesDirectory)/scripts/azure_pipelines_set_variable.py
+    --name ${{ parameters.variable }}
+    --value-from -
+  displayName: Capture stdout to ${{ parameters.variable }}
+  workingDirectory: ${{ parameters.workingDirectory }}
+  failOnStderr: ${{ parameters.failOnStderr }}

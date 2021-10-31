@@ -1,0 +1,108 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Aleksei Kuzmin <alkuzmin@microsoft.com>
+Date: Tue, 30 Oct 2018 01:25:17 +0100
+Subject: build: make Electron depend on internal stuff
+
+Microsoft patch
+
+diff --git a/BUILD.gn b/BUILD.gn
+index 2d722308ec902b86f26b850e1eb672a0f2e48941..3e7bc4c9c06a0f93a3bb14ec63c352bebf873597 100644
+--- a/BUILD.gn
++++ b/BUILD.gn
+@@ -4,6 +4,7 @@ import("//build/config/win/manifest.gni")
+ import("//components/spellcheck/spellcheck_build_features.gni")
+ import("//content/public/app/mac_helpers.gni")
+ import("//extensions/buildflags/buildflags.gni")
++import("//microsoft/src/electron/microsoft.gni")
+ import("//pdf/features.gni")
+ import("//ppapi/buildflags/buildflags.gni")
+ import("//printing/buildflags/buildflags.gni")
+@@ -684,6 +685,11 @@ source_set("electron_lib") {
+     ]
+     libs += [ "uxtheme.lib" ]
+   }
++
++  configs += microsoft.configs
++  defines += microsoft.defines
++  deps += microsoft.deps
++  sources += microsoft.sources
+ }
+ 
+ electron_paks("packed_resources") {
+diff --git a/build/webpack/webpack.config.base.js b/build/webpack/webpack.config.base.js
+index 43f83ffed88911e0e0194f07adeb8c0498616981..789bad31c4bc254d9a450f1a73e02a4466afd4ad 100644
+--- a/build/webpack/webpack.config.base.js
++++ b/build/webpack/webpack.config.base.js
+@@ -25,18 +25,19 @@ const defines = {
+   BUILDFLAG: onlyPrintingGraph ? '(a => a)' : ''
+ }
+ 
+-const buildFlagsPrefix = '--buildflags='
+-const buildFlagArg = process.argv.find(arg => arg.startsWith(buildFlagsPrefix));
++for (const buildFlagsPrefix of ['--buildflags=', '--msbuildflags=']) {
++  const buildFlagArg = process.argv.find(arg => arg.startsWith(buildFlagsPrefix));
+ 
+-if (buildFlagArg) {
+-  const buildFlagPath = buildFlagArg.substr(buildFlagsPrefix.length)
++  if (buildFlagArg) {
++    const buildFlagPath = buildFlagArg.substr(buildFlagsPrefix.length)
+ 
+-  const flagFile = fs.readFileSync(buildFlagPath, 'utf8')
+-  for (const line of flagFile.split(/(\r\n|\r|\n)/g)) {
+-    const flagMatch = line.match(/#define BUILDFLAG_INTERNAL_(.+?)\(\) \(([01])\)/)
+-    if (flagMatch) {
+-      const [, flagName, flagValue] = flagMatch;
+-      defines[flagName] = JSON.stringify(Boolean(parseInt(flagValue, 10)));
++    const flagFile = fs.readFileSync(buildFlagPath, 'utf8')
++    for (const line of flagFile.split(/(\r\n|\r|\n)/g)) {
++      const flagMatch = line.match(/#define BUILDFLAG_INTERNAL_(.+?)\(\) \(([01])\)/)
++      if (flagMatch) {
++        const [, flagName, flagValue] = flagMatch;
++        defines[flagName] = JSON.stringify(Boolean(parseInt(flagValue, 10)));
++      }
+     }
+   }
+ }
+@@ -90,6 +91,7 @@ module.exports = ({
+     resolve: {
+       alias: {
+         '@electron/internal': path.resolve(electronRoot, 'lib'),
++        '@microsoft/lib': path.resolve(electronRoot, '../microsoft/src/electron/lib'),
+         'electron': path.resolve(electronRoot, 'lib', loadElectronFromAlternateTarget || target, 'api', 'exports', 'electron.ts'),
+         // Force timers to resolve to our dependency that doesn't use window.postMessage
+         'timers': path.resolve(electronRoot, 'node_modules', 'timers-browserify', 'main.js')
+diff --git a/build/webpack/webpack.gni b/build/webpack/webpack.gni
+index ade1fe78e07b405761680a4bee87abaea8b1847f..fba41e647520502a4305b6fae3d700561a5016a6 100644
+--- a/build/webpack/webpack.gni
++++ b/build/webpack/webpack.gni
+@@ -27,8 +27,13 @@ template("webpack_build") {
+       rebase_path(invoker.config_file),
+       rebase_path(invoker.out_file),
+       "--buildflags=" + rebase_path("$target_gen_dir/buildflags/buildflags.h"),
++      "--msbuildflags=" +
++          rebase_path("$target_gen_dir/../microsoft/buildflags/buildflags.h"),
++    ]
++    deps += [
++      "buildflags",
++      "//microsoft/buildflags",
+     ]
+-    deps += [ "buildflags" ]
+ 
+     outputs = [ invoker.out_file ]
+   }
+diff --git a/shell/common/api/BUILD.gn b/shell/common/api/BUILD.gn
+index 264050c4f01d0af7effce033f727b5e12430a03f..81a426af68f8929118c0fb7af5478ee4125fe294 100644
+--- a/shell/common/api/BUILD.gn
++++ b/shell/common/api/BUILD.gn
+@@ -1,3 +1,4 @@
++import("//microsoft/src/electron/microsoft.gni")
+ import("//mojo/public/tools/bindings/mojom.gni")
+ import("../../../buildflags/buildflags.gni")
+ 
+@@ -14,4 +15,6 @@ mojom("mojo") {
+   if (enable_remote_module) {
+     enabled_features += [ "enable_remote_module" ]
+   }
++
++  enabled_features += microsoft.enabled_features
+ }

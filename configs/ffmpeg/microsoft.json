@@ -1,0 +1,15 @@
+{
+  "name": "Microsoft",
+  "base_config": "Chrome",
+  "defines": {
+    "CONFIG_MJPEG_DECODER": "1",
+    "CONFIG_MJPEG_DEMUXER": "1",
+    "CONFIG_MJPEG_PARSER": "1",
+    "CONFIG_M4V_DEMUXER": "1",
+    "CONFIG_RAWVIDEO_DECODER": "1",
+    "CONFIG_VP3_DECODER": "0",
+    "CONFIG_VP3_PARSER": "0",
+    "CONFIG_VP8_DECODER": "0",
+    "CONFIG_VP8_PARSER": "0"
+  }
+}

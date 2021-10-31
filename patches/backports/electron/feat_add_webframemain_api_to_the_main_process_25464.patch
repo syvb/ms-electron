@@ -1,0 +1,995 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Samuel Maddock <samuel.maddock@gmail.com>
+Date: Fri, 9 Oct 2020 12:50:46 -0400
+Subject: feat: add webFrameMain API to the main process (#25464)
+
+Backport: https://github.com/electron/electron/pull/25464
+
+diff --git a/docs/README.md b/docs/README.md
+index 4bc9f1db18daadd8346dcedc75c24dd32b208500..a00610fda3b3531f6d01b0f19e40a93a76818e24 100644
+--- a/docs/README.md
++++ b/docs/README.md
+@@ -146,6 +146,7 @@ These individual tutorials expand on topics discussed in the guide above.
+ * [TouchBar](api/touch-bar.md)
+ * [Tray](api/tray.md)
+ * [webContents](api/web-contents.md)
++* [webFrameMain](api/web-frame-main.md)
+ 
+ ### Modules for the Renderer Process (Web Page):
+ 
+diff --git a/docs/api/web-contents.md b/docs/api/web-contents.md
+index f202dea689809b1f9076012e1420fabd38df94ce..b65383bc3422a604acc27abad021c60e9c076cb7 100644
+--- a/docs/api/web-contents.md
++++ b/docs/api/web-contents.md
+@@ -1894,3 +1894,7 @@ A [`Debugger`](debugger.md) instance for this webContents.
+ 
+ A `Boolean` property that determines whether or not this WebContents will throttle animations and timers
+ when the page becomes backgrounded. This also affects the Page Visibility API.
++
++#### `contents.mainFrame` _Readonly_
++
++A [`WebFrameMain`](web-frame-main.md) property that represents the top frame of the page's frame hierarchy.
+diff --git a/docs/api/web-frame-main.md b/docs/api/web-frame-main.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..4a3598e32b455e154ed312915ee8a3908f5ce362
+--- /dev/null
++++ b/docs/api/web-frame-main.md
+@@ -0,0 +1,133 @@
++# webFrameMain
++
++> Control web pages and iframes.
++
++Process: [Main](../glossary.md#main-process)
++
++The `webFrameMain` module can be used to lookup frames across existing
++[`WebContents`](web-contents.md) instances. Navigation events are the common
++use case.
++
++```javascript
++const { BrowserWindow, webFrameMain } = require('electron')
++
++const win = new BrowserWindow({ width: 800, height: 1500 })
++win.loadURL('https://twitter.com')
++
++win.webContents.on(
++  'did-frame-navigate',
++  (event, url, isMainFrame, frameProcessId, frameRoutingId) => {
++    const frame = webFrameMain.fromId(frameProcessId, frameRoutingId)
++    if (frame) {
++      const code = 'document.body.innerHTML = document.body.innerHTML.replaceAll("heck", "h*ck")'
++      frame.executeJavaScript(code)
++    }
++  }
++)
++```
++
++You can also access frames of existing pages by using the `webFrame` property
++of [`WebContents`](web-contents.md).
++
++```javascript
++const { BrowserWindow } = require('electron')
++
++async function main () {
++  const win = new BrowserWindow({ width: 800, height: 600 })
++  await win.loadURL('https://reddit.com')
++
++  const youtubeEmbeds = win.webContents.mainFrame.frames.filter((frame) => {
++    try {
++      const url = new URL(frame.url)
++      return url.host === 'www.youtube.com'
++    } catch {
++      return false
++    }
++  })
++
++  console.log(youtubeEmbeds)
++}
++
++main()
++```
++
++## Methods
++
++These methods can be accessed from the `webFrameMain` module:
++
++### `webFrameMain.fromId(processId, routingId)`
++
++* `processId` Integer - An `Integer` representing the id of the process which owns the frame.
++* `routingId` Integer - An `Integer` representing the unique frame id in the
++  current renderer process. Routing IDs can be retrieved from `WebFrameMain`
++  instances (`frame.routingId`) and are also passed by frame
++  specific `WebContents` navigation events (e.g. `did-frame-navigate`).
++
++Returns `WebFrameMain` - A frame with the given process and routing IDs.
++
++## Class: WebFrameMain
++
++Process: [Main](../glossary.md#main-process)
++
++### Instance Methods
++
++#### `frame.executeJavaScript(code[, userGesture])`
++
++* `code` String
++* `userGesture` Boolean (optional) - Default is `false`.
++
++Returns `Promise<unknown>` - A promise that resolves with the result of the executed
++code or is rejected if execution throws or results in a rejected promise.
++
++Evaluates `code` in page.
++
++In the browser window some HTML APIs like `requestFullScreen` can only be
++invoked by a gesture from the user. Setting `userGesture` to `true` will remove
++this limitation.
++
++#### `frame.reload()`
++
++Returns `boolean` - Whether the reload was initiated successfully. Only results in `false` when the frame has no history.
++
++### Instance Properties
++
++#### `frame.url` _Readonly_
++
++A `string` representing the current URL of the frame.
++
++#### `frame.top` _Readonly_
++
++A `WebFrameMain | null` representing top frame in the frame hierarchy to which `frame`
++belongs.
++
++#### `frame.parent` _Readonly_
++
++A `WebFrameMain | null` representing parent frame of `frame`, the property would be
++`null` if `frame` is the top frame in the frame hierarchy.
++
++#### `frame.frames` _Readonly_
++
++A `WebFrameMain[]` collection containing the direct descendents of `frame`.
++
++#### `frame.framesInSubtree` _Readonly_
++
++A `WebFrameMain[]` collection containing every frame in the subtree of `frame`,
++including itself. This can be useful when traversing through all frames.
++
++#### `frame.frameTreeNodeId` _Readonly_
++
++An `Integer` representing the id of the frame's internal FrameTreeNode
++instance. This id is browser-global and uniquely identifies a frame that hosts
++content. The identifier is fixed at the creation of the frame and stays
++constant for the lifetime of the frame. When the frame is removed, the id is
++not used again.
++
++#### `frame.processId` _Readonly_
++
++An `Integer` representing the id of the process which owns this frame.
++
++#### `frame.routingId` _Readonly_
++
++An `Integer` representing the unique frame id in the current renderer process.
++Distinct `WebFrameMain` instances that refer to the same underlying frame will
++have the same `routingId`.
+diff --git a/filenames.auto.gni b/filenames.auto.gni
+index 876e12f29123c46e4580e21d17862113a792bc57..4c4c0f54b2469fdd75cacfddf48a153fef9e4b6a 100644
+--- a/filenames.auto.gni
++++ b/filenames.auto.gni
+@@ -66,6 +66,7 @@ auto_filenames = {
+     "docs/api/touch-bar.md",
+     "docs/api/tray.md",
+     "docs/api/web-contents.md",
++    "docs/api/web-frame-main.md",
+     "docs/api/web-frame.md",
+     "docs/api/web-request.md",
+     "docs/api/webview-tag.md",
+@@ -220,6 +221,7 @@ auto_filenames = {
+     "lib/browser/api/views/image-view.js",
+     "lib/browser/api/web-contents-view.js",
+     "lib/browser/api/web-contents.js",
++    "lib/browser/api/web-frame-main.ts",
+     "lib/browser/chrome-extension-shim.js",
+     "lib/browser/default-menu.ts",
+     "lib/browser/desktop-capturer.ts",
+diff --git a/filenames.gni b/filenames.gni
+index 8019dfcee4aacfc4e26ed2fc76509056d141ef2d..b7209d9b0fdac3965b7352b8f8e05a2361f5299c 100644
+--- a/filenames.gni
++++ b/filenames.gni
+@@ -116,6 +116,8 @@ filenames = {
+     "shell/browser/api/electron_api_web_contents_mac.mm",
+     "shell/browser/api/electron_api_web_contents_view.cc",
+     "shell/browser/api/electron_api_web_contents_view.h",
++    "shell/browser/api/electron_api_web_frame_main.cc",
++    "shell/browser/api/electron_api_web_frame_main.h",
+     "shell/browser/api/electron_api_web_request.cc",
+     "shell/browser/api/electron_api_web_request.h",
+     "shell/browser/api/electron_api_web_view_manager.cc",
+@@ -494,6 +496,8 @@ filenames = {
+     "shell/common/gin_converters/file_dialog_converter.cc",
+     "shell/common/gin_converters/file_dialog_converter.h",
+     "shell/common/gin_converters/file_path_converter.h",
++    "shell/common/gin_converters/frame_converter.cc",
++    "shell/common/gin_converters/frame_converter.h",
+     "shell/common/gin_converters/gfx_converter.cc",
+     "shell/common/gin_converters/gfx_converter.h",
+     "shell/common/gin_converters/gurl_converter.h",
+diff --git a/lib/browser/api/module-list.ts b/lib/browser/api/module-list.ts
+index 1f91ebf66b6d38aba3615e7760945fd0574eb27e..baeebac19914d2a3cd9b2c0d502943a364ea03e3 100644
+--- a/lib/browser/api/module-list.ts
++++ b/lib/browser/api/module-list.ts
+@@ -31,7 +31,8 @@ export const browserModuleList: ElectronInternal.ModuleEntry[] = [
+   { name: 'Tray', loader: () => require('./tray') },
+   { name: 'View', loader: () => require('./view') },
+   { name: 'webContents', loader: () => require('./web-contents') },
+-  { name: 'WebContentsView', loader: () => require('./web-contents-view') }
++  { name: 'WebContentsView', loader: () => require('./web-contents-view') },
++  { name: 'webFrameMain', loader: () => require('./web-frame-main') }
+ ];
+ 
+ if (BUILDFLAG(ENABLE_DESKTOP_CAPTURER)) {
+diff --git a/lib/browser/api/module-names.ts b/lib/browser/api/module-names.ts
+index ca328745b038a43096da7506d3e4bc868ed33a04..2f2342e09b6c33cc36761d8756a47d88dc5b7d77 100644
+--- a/lib/browser/api/module-names.ts
++++ b/lib/browser/api/module-names.ts
+@@ -34,7 +34,8 @@ export const browserModuleNames = [
+   'Tray',
+   'View',
+   'webContents',
+-  'WebContentsView'
++  'WebContentsView',
++  'webFrameMain'
+ ];
+ 
+ if (BUILDFLAG(ENABLE_DESKTOP_CAPTURER)) {
+diff --git a/lib/browser/api/web-frame-main.ts b/lib/browser/api/web-frame-main.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..43b9ac3d44c11f4fad4cd6630d20862951be83d2
+--- /dev/null
++++ b/lib/browser/api/web-frame-main.ts
+@@ -0,0 +1,5 @@
++const { fromId } = process._linkedBinding('electron_browser_web_frame_main');
++
++export default {
++  fromId
++};
+diff --git a/package.json b/package.json
+index aef9fc33722684861dc445e7c4c0ba503d3c099b..f123544d127478d099077e0874704132e970d480 100644
+--- a/package.json
++++ b/package.json
+@@ -5,7 +5,7 @@
+   "description": "Build cross platform desktop apps with JavaScript, HTML, and CSS",
+   "devDependencies": {
+     "@electron/docs-parser": "^0.10.0",
+-    "@electron/typescript-definitions": "^8.7.2",
++    "@electron/typescript-definitions": "^8.8.0",
+     "@octokit/auth-app": "^2.10.0",
+     "@octokit/rest": "^16.3.2",
+     "@primer/octicons": "^9.1.1",
+diff --git a/shell/browser/api/electron_api_web_contents.cc b/shell/browser/api/electron_api_web_contents.cc
+index 70e90d2d697d6b7760aeef230b38e2a65f1d3835..d74b9d01a7328aa3c1102b2cb67cba3e5c4cf27e 100644
+--- a/shell/browser/api/electron_api_web_contents.cc
++++ b/shell/browser/api/electron_api_web_contents.cc
+@@ -59,6 +59,7 @@
+ #include "shell/browser/api/electron_api_browser_window.h"
+ #include "shell/browser/api/electron_api_debugger.h"
+ #include "shell/browser/api/electron_api_session.h"
++#include "shell/browser/api/electron_api_web_frame_main.h"
+ #include "shell/browser/api/message_port.h"
+ #include "shell/browser/browser.h"
+ #include "shell/browser/child_web_contents_tracker.h"
+@@ -84,6 +85,7 @@
+ #include "shell/common/gin_converters/callback_converter.h"
+ #include "shell/common/gin_converters/content_converter.h"
+ #include "shell/common/gin_converters/file_path_converter.h"
++#include "shell/common/gin_converters/frame_converter.h"
+ #include "shell/common/gin_converters/gfx_converter.h"
+ #include "shell/common/gin_converters/gurl_converter.h"
+ #include "shell/common/gin_converters/image_converter.h"
+@@ -1371,6 +1373,10 @@ void WebContents::UpdateDraggableRegions(
+ 
+ void WebContents::RenderFrameDeleted(
+     content::RenderFrameHost* render_frame_host) {
++  // A WebFrameMain can outlive its RenderFrameHost so we need to mark it as
++  // disposed to prevent access to it.
++  WebFrameMain::RenderFrameDeleted(render_frame_host);
++
+   // A RenderFrameHost can be destroyed before the related Mojo binding is
+   // closed, which can result in Mojo calls being sent for RenderFrameHosts
+   // that no longer exist. To prevent this from happening, when a
+@@ -2822,6 +2828,10 @@ bool WebContents::WasInitiallyShown() {
+   return initially_shown_;
+ }
+ 
++content::RenderFrameHost* WebContents::MainFrame() {
++  return web_contents()->GetMainFrame();
++}
++
+ void WebContents::GrantOriginAccess(const GURL& url) {
+   content::ChildProcessSecurityPolicy::GetInstance()->GrantCommitOrigin(
+       web_contents()->GetMainFrame()->GetProcess()->GetID(),
+@@ -2997,7 +3007,8 @@ void WebContents::BuildPrototype(v8::Isolate* isolate,
+       .SetProperty("hostWebContents", &WebContents::HostWebContents)
+       .SetProperty("devToolsWebContents", &WebContents::DevToolsWebContents)
+       .SetProperty("debugger", &WebContents::Debugger)
+-      .SetProperty("_initiallyShown", &WebContents::WasInitiallyShown);
++      .SetProperty("_initiallyShown", &WebContents::WasInitiallyShown)
++      .SetProperty("mainFrame", &WebContents::MainFrame);
+ }
+ 
+ ElectronBrowserContext* WebContents::GetBrowserContext() const {
+diff --git a/shell/browser/api/electron_api_web_contents.h b/shell/browser/api/electron_api_web_contents.h
+index 64d30dee0f706db34559f22cd4ae677c954f1319..d9eb94c790004dbf0ace10e03cc81c8472a95ce3 100644
+--- a/shell/browser/api/electron_api_web_contents.h
++++ b/shell/browser/api/electron_api_web_contents.h
+@@ -368,6 +368,7 @@ class WebContents : public gin_helper::TrackableObject<WebContents>,
+   v8::Local<v8::Value> DevToolsWebContents(v8::Isolate* isolate);
+   v8::Local<v8::Value> Debugger(v8::Isolate* isolate);
+   bool WasInitiallyShown();
++  content::RenderFrameHost* MainFrame();
+ 
+   WebContentsZoomController* GetZoomController() { return zoom_controller_; }
+ 
+diff --git a/shell/browser/api/electron_api_web_frame_main.cc b/shell/browser/api/electron_api_web_frame_main.cc
+new file mode 100644
+index 0000000000000000000000000000000000000000..d7c8f45fa932f10ec8b8d4d99a448a191931bfa3
+--- /dev/null
++++ b/shell/browser/api/electron_api_web_frame_main.cc
+@@ -0,0 +1,258 @@
++// Copyright (c) 2020 Samuel Maddock <sam@samuelmaddock.com>.
++// Use of this source code is governed by the MIT license that can be
++// found in the LICENSE file.
++
++#include "shell/browser/api/electron_api_web_frame_main.h"
++
++#include <string>
++#include <unordered_map>
++#include <utility>
++#include <vector>
++
++#include "base/lazy_instance.h"
++#include "base/logging.h"
++#include "content/browser/renderer_host/frame_tree_node.h"  // nogncheck
++#include "content/public/browser/render_frame_host.h"
++#include "gin/object_template_builder.h"
++#include "shell/browser/browser.h"
++#include "shell/browser/javascript_environment.h"
++#include "shell/common/gin_converters/frame_converter.h"
++#include "shell/common/gin_converters/gurl_converter.h"
++#include "shell/common/gin_converters/value_converter.h"
++#include "shell/common/gin_helper/dictionary.h"
++#include "shell/common/gin_helper/error_thrower.h"
++#include "shell/common/gin_helper/object_template_builder.h"
++#include "shell/common/gin_helper/promise.h"
++#include "shell/common/node_includes.h"
++
++namespace electron {
++
++namespace api {
++
++typedef std::unordered_map<content::RenderFrameHost*, WebFrameMain*>
++    RenderFrameMap;
++base::LazyInstance<RenderFrameMap>::DestructorAtExit g_render_frame_map =
++    LAZY_INSTANCE_INITIALIZER;
++
++WebFrameMain* FromRenderFrameHost(content::RenderFrameHost* rfh) {
++  auto frame_map = g_render_frame_map.Get();
++  auto iter = frame_map.find(rfh);
++  auto* web_frame = iter == frame_map.end() ? nullptr : iter->second;
++  return web_frame;
++}
++
++gin::WrapperInfo WebFrameMain::kWrapperInfo = {gin::kEmbedderNativeGin};
++
++WebFrameMain::WebFrameMain(content::RenderFrameHost* rfh) : render_frame_(rfh) {
++  g_render_frame_map.Get().emplace(rfh, this);
++}
++
++WebFrameMain::~WebFrameMain() {
++  MarkRenderFrameDisposed();
++}
++
++void WebFrameMain::MarkRenderFrameDisposed() {
++  g_render_frame_map.Get().erase(render_frame_);
++  render_frame_disposed_ = true;
++}
++
++bool WebFrameMain::CheckRenderFrame() const {
++  if (render_frame_disposed_) {
++    v8::Isolate* isolate = JavascriptEnvironment::GetIsolate();
++    v8::Locker locker(isolate);
++    v8::HandleScope scope(isolate);
++    gin_helper::ErrorThrower(isolate).ThrowError(
++        "Render frame was disposed before WebFrameMain could be accessed");
++    return false;
++  }
++  return true;
++}
++
++v8::Local<v8::Promise> WebFrameMain::ExecuteJavaScript(
++    gin::Arguments* args,
++    const base::string16& code) {
++  gin_helper::Promise<base::Value> promise(args->isolate());
++  v8::Local<v8::Promise> handle = promise.GetHandle();
++
++  // Optional userGesture parameter
++  bool user_gesture;
++  if (!args->PeekNext().IsEmpty()) {
++    if (args->PeekNext()->IsBoolean()) {
++      args->GetNext(&user_gesture);
++    } else {
++      args->ThrowTypeError("userGesture must be a boolean");
++      return handle;
++    }
++  } else {
++    user_gesture = false;
++  }
++
++  if (render_frame_disposed_) {
++    promise.RejectWithErrorMessage(
++        "Render frame was disposed before WebFrameMain could be accessed");
++    return handle;
++  }
++
++  if (user_gesture) {
++    auto* ftn = content::FrameTreeNode::From(render_frame_);
++    ftn->UpdateUserActivationState(
++        blink::mojom::UserActivationUpdateType::kNotifyActivation,
++        blink::mojom::UserActivationNotificationType::kTest);
++  }
++
++  render_frame_->ExecuteJavaScriptForTests(
++      code, base::BindOnce([](gin_helper::Promise<base::Value> promise,
++                              base::Value value) { promise.Resolve(value); },
++                           std::move(promise)));
++
++  return handle;
++}
++
++bool WebFrameMain::Reload(v8::Isolate* isolate) {
++  if (!CheckRenderFrame())
++    return false;
++  return render_frame_->Reload();
++}
++
++int WebFrameMain::FrameTreeNodeID(v8::Isolate* isolate) const {
++  if (!CheckRenderFrame())
++    return -1;
++  return render_frame_->GetFrameTreeNodeId();
++}
++
++int WebFrameMain::ProcessID(v8::Isolate* isolate) const {
++  if (!CheckRenderFrame())
++    return -1;
++  return render_frame_->GetProcess()->GetID();
++}
++
++int WebFrameMain::RoutingID(v8::Isolate* isolate) const {
++  if (!CheckRenderFrame())
++    return -1;
++  return render_frame_->GetRoutingID();
++}
++
++GURL WebFrameMain::URL(v8::Isolate* isolate) const {
++  if (!CheckRenderFrame())
++    return GURL::EmptyGURL();
++  return render_frame_->GetLastCommittedURL();
++}
++
++content::RenderFrameHost* WebFrameMain::Top(v8::Isolate* isolate) const {
++  if (!CheckRenderFrame())
++    return nullptr;
++  return render_frame_->GetMainFrame();
++}
++
++content::RenderFrameHost* WebFrameMain::Parent(v8::Isolate* isolate) const {
++  if (!CheckRenderFrame())
++    return nullptr;
++  return render_frame_->GetParent();
++}
++
++std::vector<content::RenderFrameHost*> WebFrameMain::Frames(
++    v8::Isolate* isolate) const {
++  std::vector<content::RenderFrameHost*> frame_hosts;
++  if (!CheckRenderFrame())
++    return frame_hosts;
++
++  for (auto* rfh : render_frame_->GetFramesInSubtree()) {
++    if (rfh->GetParent() == render_frame_)
++      frame_hosts.push_back(rfh);
++  }
++
++  return frame_hosts;
++}
++
++std::vector<content::RenderFrameHost*> WebFrameMain::FramesInSubtree(
++    v8::Isolate* isolate) const {
++  std::vector<content::RenderFrameHost*> frame_hosts;
++  if (!CheckRenderFrame())
++    return frame_hosts;
++
++  for (auto* rfh : render_frame_->GetFramesInSubtree()) {
++    frame_hosts.push_back(rfh);
++  }
++
++  return frame_hosts;
++}
++
++// static
++gin::Handle<WebFrameMain> WebFrameMain::From(v8::Isolate* isolate,
++                                             content::RenderFrameHost* rfh) {
++  if (rfh == nullptr)
++    return gin::Handle<WebFrameMain>();
++  auto* web_frame = FromRenderFrameHost(rfh);
++  auto handle = gin::CreateHandle(
++      isolate, web_frame == nullptr ? new WebFrameMain(rfh) : web_frame);
++  return handle;
++}
++
++// static
++gin::Handle<WebFrameMain> WebFrameMain::FromID(v8::Isolate* isolate,
++                                               int render_process_id,
++                                               int render_frame_id) {
++  auto* rfh =
++      content::RenderFrameHost::FromID(render_process_id, render_frame_id);
++  return From(isolate, rfh);
++}
++
++// static
++void WebFrameMain::RenderFrameDeleted(content::RenderFrameHost* rfh) {
++  auto* web_frame = FromRenderFrameHost(rfh);
++  if (web_frame)
++    web_frame->MarkRenderFrameDisposed();
++}
++
++gin::ObjectTemplateBuilder WebFrameMain::GetObjectTemplateBuilder(
++    v8::Isolate* isolate) {
++  return gin::Wrappable<WebFrameMain>::GetObjectTemplateBuilder(isolate)
++      .SetMethod("executeJavaScript", &WebFrameMain::ExecuteJavaScript)
++      .SetMethod("reload", &WebFrameMain::Reload)
++      .SetProperty("frameTreeNodeId", &WebFrameMain::FrameTreeNodeID)
++      .SetProperty("processId", &WebFrameMain::ProcessID)
++      .SetProperty("routingId", &WebFrameMain::RoutingID)
++      .SetProperty("url", &WebFrameMain::URL)
++      .SetProperty("top", &WebFrameMain::Top)
++      .SetProperty("parent", &WebFrameMain::Parent)
++      .SetProperty("frames", &WebFrameMain::Frames)
++      .SetProperty("framesInSubtree", &WebFrameMain::FramesInSubtree);
++}
++
++const char* WebFrameMain::GetTypeName() {
++  return "WebFrameMain";
++}
++
++}  // namespace api
++
++}  // namespace electron
++
++namespace {
++
++using electron::api::WebFrameMain;
++
++v8::Local<v8::Value> FromID(gin_helper::ErrorThrower thrower,
++                            int render_process_id,
++                            int render_frame_id) {
++  if (!electron::Browser::Get()->is_ready()) {
++    thrower.ThrowError("WebFrameMain is available only after app ready");
++    return v8::Null(thrower.isolate());
++  }
++
++  return WebFrameMain::FromID(thrower.isolate(), render_process_id,
++                              render_frame_id)
++      .ToV8();
++}
++
++void Initialize(v8::Local<v8::Object> exports,
++                v8::Local<v8::Value> unused,
++                v8::Local<v8::Context> context,
++                void* priv) {
++  v8::Isolate* isolate = context->GetIsolate();
++  gin_helper::Dictionary dict(isolate, exports);
++  dict.SetMethod("fromId", &FromID);
++}
++
++}  // namespace
++
++NODE_LINKED_MODULE_CONTEXT_AWARE(electron_browser_web_frame_main, Initialize)
+diff --git a/shell/browser/api/electron_api_web_frame_main.h b/shell/browser/api/electron_api_web_frame_main.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..4eb376a4db9666afb6c743bd5cf1ddeb9855fef5
+--- /dev/null
++++ b/shell/browser/api/electron_api_web_frame_main.h
+@@ -0,0 +1,94 @@
++// Copyright (c) 2020 Samuel Maddock <sam@samuelmaddock.com>.
++// Use of this source code is governed by the MIT license that can be
++// found in the LICENSE file.
++
++#ifndef SHELL_BROWSER_API_ELECTRON_API_WEB_FRAME_MAIN_H_
++#define SHELL_BROWSER_API_ELECTRON_API_WEB_FRAME_MAIN_H_
++
++#include <memory>
++#include <string>
++#include <vector>
++
++#include "gin/handle.h"
++#include "gin/wrappable.h"
++
++class GURL;
++
++namespace content {
++class RenderFrameHost;
++}
++
++namespace gin {
++class Arguments;
++}
++
++namespace gin_helper {
++class Dictionary;
++}
++
++namespace electron {
++
++namespace api {
++
++// Bindings for accessing frames from the main process.
++class WebFrameMain : public gin::Wrappable<WebFrameMain> {
++ public:
++  static gin::Handle<WebFrameMain> FromID(v8::Isolate* isolate,
++                                          int render_process_id,
++                                          int render_frame_id);
++  static gin::Handle<WebFrameMain> From(
++      v8::Isolate* isolate,
++      content::RenderFrameHost* render_frame_host);
++
++  // Called to mark any RenderFrameHost as disposed by any WebFrameMain that
++  // may be holding a weak reference.
++  static void RenderFrameDeleted(content::RenderFrameHost* rfh);
++
++  // Mark RenderFrameHost as disposed and to no longer access it. This can
++  // occur upon frame navigation.
++  void MarkRenderFrameDisposed();
++
++  // gin::Wrappable
++  static gin::WrapperInfo kWrapperInfo;
++  gin::ObjectTemplateBuilder GetObjectTemplateBuilder(
++      v8::Isolate* isolate) override;
++  const char* GetTypeName() override;
++
++ protected:
++  explicit WebFrameMain(content::RenderFrameHost* render_frame);
++  ~WebFrameMain() override;
++
++ private:
++  // WebFrameMain can outlive its RenderFrameHost pointer so we need to check
++  // whether its been disposed of prior to accessing it.
++  bool CheckRenderFrame() const;
++
++  v8::Local<v8::Promise> ExecuteJavaScript(gin::Arguments* args,
++                                           const base::string16& code);
++  bool Reload(v8::Isolate* isolate);
++
++  int FrameTreeNodeID(v8::Isolate* isolate) const;
++  int ProcessID(v8::Isolate* isolate) const;
++  int RoutingID(v8::Isolate* isolate) const;
++  GURL URL(v8::Isolate* isolate) const;
++
++  content::RenderFrameHost* Top(v8::Isolate* isolate) const;
++  content::RenderFrameHost* Parent(v8::Isolate* isolate) const;
++  std::vector<content::RenderFrameHost*> Frames(v8::Isolate* isolate) const;
++  std::vector<content::RenderFrameHost*> FramesInSubtree(
++      v8::Isolate* isolate) const;
++
++  content::RenderFrameHost* render_frame_ = nullptr;
++
++  // Whether the RenderFrameHost has been removed and that it should no longer
++  // be accessed.
++  bool render_frame_disposed_ = false;
++
++  DISALLOW_COPY_AND_ASSIGN(WebFrameMain);
++};
++
++}  // namespace api
++
++}  // namespace electron
++
++#endif  // SHELL_BROWSER_API_ELECTRON_API_WEB_FRAME_MAIN_H_
+diff --git a/shell/common/gin_converters/frame_converter.cc b/shell/common/gin_converters/frame_converter.cc
+new file mode 100644
+index 0000000000000000000000000000000000000000..53f34e285c6c840e82694ec818603e550eb29da5
+--- /dev/null
++++ b/shell/common/gin_converters/frame_converter.cc
+@@ -0,0 +1,28 @@
++// Copyright (c) 2020 Samuel Maddock <sam@samuelmaddock.com>.
++// Use of this source code is governed by the MIT license that can be
++// found in the LICENSE file.
++
++#include "shell/common/gin_converters/frame_converter.h"
++
++#include <string>
++#include <vector>
++
++#include "content/public/browser/render_frame_host.h"
++#include "shell/browser/api/electron_api_web_frame_main.h"
++#include "shell/common/gin_converters/blink_converter.h"
++#include "shell/common/gin_converters/callback_converter.h"
++#include "shell/common/gin_converters/gurl_converter.h"
++#include "shell/common/gin_helper/dictionary.h"
++
++namespace gin {
++
++// static
++v8::Local<v8::Value> Converter<content::RenderFrameHost*>::ToV8(
++    v8::Isolate* isolate,
++    content::RenderFrameHost* val) {
++  if (!val)
++    return v8::Null(isolate);
++  return electron::api::WebFrameMain::From(isolate, val).ToV8();
++}
++
++}  // namespace gin
+diff --git a/shell/common/gin_converters/frame_converter.h b/shell/common/gin_converters/frame_converter.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..be393718995569cf6914ebcf43a907ebe4c436a8
+--- /dev/null
++++ b/shell/common/gin_converters/frame_converter.h
+@@ -0,0 +1,26 @@
++// Copyright (c) 2020 Samuel Maddock <sam@samuelmaddock.com>.
++// Use of this source code is governed by the MIT license that can be
++// found in the LICENSE file.
++
++#ifndef SHELL_COMMON_GIN_CONVERTERS_FRAME_CONVERTER_H_
++#define SHELL_COMMON_GIN_CONVERTERS_FRAME_CONVERTER_H_
++
++#include <utility>
++
++#include "gin/converter.h"
++
++namespace content {
++class RenderFrameHost;
++}  // namespace content
++
++namespace gin {
++
++template <>
++struct Converter<content::RenderFrameHost*> {
++  static v8::Local<v8::Value> ToV8(v8::Isolate* isolate,
++                                   content::RenderFrameHost* val);
++};
++
++}  // namespace gin
++
++#endif  // SHELL_COMMON_GIN_CONVERTERS_FRAME_CONVERTER_H_
+diff --git a/shell/common/node_bindings.cc b/shell/common/node_bindings.cc
+index 4d558bf62f4ea4ccd93436b80c961e38deb83500..454594857a2dc0a792f0220dec98ad2deb8efc14 100644
+--- a/shell/common/node_bindings.cc
++++ b/shell/common/node_bindings.cc
+@@ -58,6 +58,7 @@
+   V(electron_browser_view)               \
+   V(electron_browser_web_contents)       \
+   V(electron_browser_web_contents_view)  \
++  V(electron_browser_web_frame_main)     \
+   V(electron_browser_web_view_manager)   \
+   V(electron_browser_window)             \
+   V(electron_common_asar)                \
+diff --git a/spec-main/api-web-frame-main-spec.ts b/spec-main/api-web-frame-main-spec.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..313b9a4c166ee3fe9c783d18258dc9f14203165a
+--- /dev/null
++++ b/spec-main/api-web-frame-main-spec.ts
+@@ -0,0 +1,200 @@
++import { expect } from 'chai';
++import * as http from 'http';
++import * as path from 'path';
++import * as url from 'url';
++import { BrowserWindow, WebFrameMain, webFrameMain } from 'electron/main';
++import { closeAllWindows } from './window-helpers';
++import { emittedOnce } from './events-helpers';
++import { AddressInfo } from 'net';
++
++describe('webFrameMain module', () => {
++  const fixtures = path.resolve(__dirname, '..', 'spec-main', 'fixtures');
++  const subframesPath = path.join(fixtures, 'sub-frames');
++
++  const fileUrl = (filename: string) => url.pathToFileURL(path.join(subframesPath, filename)).href;
++
++  afterEach(closeAllWindows);
++
++  describe('WebFrame traversal APIs', () => {
++    let w: BrowserWindow;
++    let webFrame: WebFrameMain;
++
++    beforeEach(async () => {
++      w = new BrowserWindow({ show: false, webPreferences: { contextIsolation: true } });
++      await w.loadFile(path.join(subframesPath, 'frame-with-frame-container.html'));
++      webFrame = w.webContents.mainFrame;
++    });
++
++    it('can access top frame', () => {
++      expect(webFrame.top).to.equal(webFrame);
++    });
++
++    it('has no parent on top frame', () => {
++      expect(webFrame.parent).to.be.null();
++    });
++
++    it('can access immediate frame descendents', () => {
++      const { frames } = webFrame;
++      expect(frames).to.have.lengthOf(1);
++      const subframe = frames[0];
++      expect(subframe).not.to.equal(webFrame);
++      expect(subframe.parent).to.equal(webFrame);
++    });
++
++    it('can access deeply nested frames', () => {
++      const subframe = webFrame.frames[0];
++      expect(subframe).not.to.equal(webFrame);
++      expect(subframe.parent).to.equal(webFrame);
++      const nestedSubframe = subframe.frames[0];
++      expect(nestedSubframe).not.to.equal(webFrame);
++      expect(nestedSubframe).not.to.equal(subframe);
++      expect(nestedSubframe.parent).to.equal(subframe);
++    });
++
++    it('can traverse all frames in root', () => {
++      const urls = webFrame.framesInSubtree.map(frame => frame.url);
++      expect(urls).to.deep.equal([
++        fileUrl('frame-with-frame-container.html'),
++        fileUrl('frame-with-frame.html'),
++        fileUrl('frame.html')
++      ]);
++    });
++
++    it('can traverse all frames in subtree', () => {
++      const urls = webFrame.frames[0].framesInSubtree.map(frame => frame.url);
++      expect(urls).to.deep.equal([
++        fileUrl('frame-with-frame.html'),
++        fileUrl('frame.html')
++      ]);
++    });
++
++    describe('cross-origin', () => {
++      type Server = { server: http.Server, url: string }
++
++      /** Creates an HTTP server whose handler embeds the given iframe src. */
++      const createServer = () => new Promise<Server>(resolve => {
++        const server = http.createServer((req, res) => {
++          const params = new URLSearchParams(url.parse(req.url || '').search || '');
++          if (params.has('frameSrc')) {
++            res.end(`<iframe src="${params.get('frameSrc')}"></iframe>`);
++          } else {
++            res.end('');
++          }
++        });
++        server.listen(0, '127.0.0.1', () => {
++          const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/`;
++          resolve({ server, url });
++        });
++      });
++
++      let serverA = null as unknown as Server;
++      let serverB = null as unknown as Server;
++
++      before(async () => {
++        serverA = await createServer();
++        serverB = await createServer();
++      });
++
++      after(() => {
++        serverA.server.close();
++        serverB.server.close();
++      });
++
++      it('can access cross-origin frames', async () => {
++        await w.loadURL(`${serverA.url}?frameSrc=${serverB.url}`);
++        webFrame = w.webContents.mainFrame;
++        expect(webFrame.url.startsWith(serverA.url)).to.be.true();
++        expect(webFrame.frames[0].url).to.equal(serverB.url);
++      });
++    });
++  });
++
++  describe('WebFrame.url', () => {
++    it('should report correct address for each subframe', async () => {
++      const w = new BrowserWindow({ show: false, webPreferences: { contextIsolation: true } });
++      await w.loadFile(path.join(subframesPath, 'frame-with-frame-container.html'));
++      const webFrame = w.webContents.mainFrame;
++
++      expect(webFrame.url).to.equal(fileUrl('frame-with-frame-container.html'));
++      expect(webFrame.frames[0].url).to.equal(fileUrl('frame-with-frame.html'));
++      expect(webFrame.frames[0].frames[0].url).to.equal(fileUrl('frame.html'));
++    });
++  });
++
++  describe('WebFrame IDs', () => {
++    it('has properties for various identifiers', async () => {
++      const w = new BrowserWindow({ show: false, webPreferences: { contextIsolation: true } });
++      await w.loadFile(path.join(subframesPath, 'frame.html'));
++      const webFrame = w.webContents.mainFrame;
++      expect(webFrame).to.haveOwnProperty('frameTreeNodeId');
++      expect(webFrame).to.haveOwnProperty('processId');
++      expect(webFrame).to.haveOwnProperty('routingId');
++    });
++  });
++
++  describe('WebFrame.executeJavaScript', () => {
++    it('can inject code into any subframe', async () => {
++      const w = new BrowserWindow({ show: false, webPreferences: { contextIsolation: true } });
++      await w.loadFile(path.join(subframesPath, 'frame-with-frame-container.html'));
++      const webFrame = w.webContents.mainFrame;
++
++      const getUrl = (frame: WebFrameMain) => frame.executeJavaScript('location.href');
++      expect(await getUrl(webFrame)).to.equal(fileUrl('frame-with-frame-container.html'));
++      expect(await getUrl(webFrame.frames[0])).to.equal(fileUrl('frame-with-frame.html'));
++      expect(await getUrl(webFrame.frames[0].frames[0])).to.equal(fileUrl('frame.html'));
++    });
++  });
++
++  describe('WebFrame.reload', () => {
++    it('reloads a frame', async () => {
++      const w = new BrowserWindow({ show: false, webPreferences: { contextIsolation: true } });
++      await w.loadFile(path.join(subframesPath, 'frame.html'));
++      const webFrame = w.webContents.mainFrame;
++
++      await webFrame.executeJavaScript('window.TEMP = 1', false);
++      expect(webFrame.reload()).to.be.true();
++      await emittedOnce(w.webContents, 'dom-ready');
++      expect(await webFrame.executeJavaScript('window.TEMP', false)).to.be.null();
++    });
++  });
++
++  describe('disposed WebFrames', () => {
++    let w: BrowserWindow;
++    let webFrame: WebFrameMain;
++
++    before(async () => {
++      w = new BrowserWindow({ show: false, webPreferences: { contextIsolation: true } });
++      await w.loadFile(path.join(subframesPath, 'frame-with-frame-container.html'));
++      webFrame = w.webContents.mainFrame;
++      w.destroy();
++      // Wait for WebContents, and thus RenderFrameHost, to be destroyed.
++      await new Promise(resolve => setTimeout(resolve, 0));
++    });
++
++    it('throws upon accessing properties', () => {
++      expect(() => webFrame.url).to.throw();
++    });
++  });
++
++  it('webFrameMain.fromId can find each frame from navigation events', (done) => {
++    const w = new BrowserWindow({ show: false, webPreferences: { contextIsolation: true } });
++
++    w.loadFile(path.join(subframesPath, 'frame-with-frame-container.html'));
++
++    let eventCount = 0;
++    w.webContents.on('did-frame-finish-load', (event, isMainFrame, frameProcessId, frameRoutingId) => {
++      const frame = webFrameMain.fromId(frameProcessId, frameRoutingId);
++      expect(frame).not.to.be.null();
++      expect(frame?.processId).to.be.equal(frameProcessId);
++      expect(frame?.routingId).to.be.equal(frameRoutingId);
++      expect(frame?.top === frame).to.be.equal(isMainFrame);
++
++      eventCount++;
++
++      // frame-with-frame-container.html, frame-with-frame.html, frame.html
++      if (eventCount === 3) {
++        done();
++      }
++    });
++  });
++});
+diff --git a/yarn.lock b/yarn.lock
+index e082000c1de6cd98b089671882cbb21163fdc1a7..b4626406f30eb4a6b1cf037c63931c04e28cb605 100644
+--- a/yarn.lock
++++ b/yarn.lock
+@@ -40,10 +40,10 @@
+     ora "^4.0.3"
+     pretty-ms "^5.1.0"
+ 
+-"@electron/typescript-definitions@^8.7.2":
+-  version "8.7.2"
+-  resolved "https://registry.yarnpkg.com/@electron/typescript-definitions/-/typescript-definitions-8.7.2.tgz#a653859975c6a19721b3f47f4f7953876498a8ed"
+-  integrity sha512-AE1NjiP2nZsUGYMU78+W6QPCZCRKQe54Tee6qJnBW42rZktZ0hwYXglfpIavpo9dRp4pWncgCo56PXj2rKwCSA==
++"@electron/typescript-definitions@^8.8.0":
++  version "8.8.0"
++  resolved "https://registry.yarnpkg.com/@electron/typescript-definitions/-/typescript-definitions-8.8.0.tgz#3af8989507af50b3b06b23833a45a5631ab31d3f"
++  integrity sha512-HXcLOzI6zNFTzye3R/aSuqBAiVkUWVnogHwRe4mEdS4nodOqKZQxaB5tzPU2qZ4mS5cpVykBW4s6qAItuptoCA==
+   dependencies:
+     "@types/node" "^11.13.7"
+     chalk "^2.4.2"

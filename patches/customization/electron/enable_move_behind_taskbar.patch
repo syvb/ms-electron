@@ -1,0 +1,30 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tomas Rycl <torycl@microsoft.com>
+Date: Tue, 16 Mar 2021 15:18:50 +0100
+Subject: Allows control behind_task_bar_ using buildflags.
+
+Teams Desktop Client needs behind_task_bar_ to be false for all
+topmost windows in Windows OS.
+Microsoft patch, can be removed if Electron changes this logic
+so it does not interfere with default Windows behavior
+
+diff --git a/shell/browser/native_window_views.cc b/shell/browser/native_window_views.cc
+index 8791fe1879c7ee839004c93a9b17ac8a51cb0763..f418afc468124260c3f0cee43ca57c18697a445a 100644
+--- a/shell/browser/native_window_views.cc
++++ b/shell/browser/native_window_views.cc
+@@ -850,6 +850,7 @@ void NativeWindowViews::SetAlwaysOnTop(ui::ZOrderLevel z_order,
+ #if defined(OS_WIN)
+   // Reset the placement flag.
+   behind_task_bar_ = false;
++#if BUILDFLAG(MICROSOFT_ENABLE_MOVE_BEHIND_TASKBAR)
+   if (z_order != ui::ZOrderLevel::kNormal) {
+     // On macOS the window is placed behind the Dock for the following levels.
+     // Re-use the same names on Windows to make it easier for the user.
+@@ -857,6 +858,7 @@ void NativeWindowViews::SetAlwaysOnTop(ui::ZOrderLevel z_order,
+         "floating", "torn-off-menu", "modal-panel", "main-menu", "status"};
+     behind_task_bar_ = base::Contains(levels, level);
+   }
++#endif  // BUILDFLAG(MICROSOFT_ENABLE_MOVE_BEHIND_TASKBAR)
+ #endif
+   MoveBehindTaskBarIfNeeded();
+ 

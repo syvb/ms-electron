@@ -1,0 +1,18 @@
+# Install an Azure Pipelines agent on a virtual machine on Azure.
+# Requires access to the "Electron" variable group.
+
+parameters:
+  name: ''  # A target virtual machine name.
+
+steps:
+- template: azure_cli.yml
+  parameters:
+    displayName: Install a build agent on the "${{ parameters.name }}"
+    scriptArguments: >-
+      ${{ parameters.name }}
+      install_azure_pipelines_agent
+      ${{ parameters.name }}
+      $(ElectronBuildagentUsername)
+      $(ElectronBuildagentPassword)
+      $(ElectronBuildagentPat)
+    scriptPath: scripts/azure/run_script_on_azure_machine.sh

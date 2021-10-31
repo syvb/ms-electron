@@ -1,0 +1,143 @@
+# Publish Electron build artifacts to Skype IVY.
+# https://skype.pkgs.visualstudio.com/_packaging/tps/ivy/v1/tps/
+
+parameters:
+  buildId: ''  # An id of a build that created Electron distribution. An empty string stands for the current build.
+  dryRun: false  # Do everything except the actual uploading.
+  _artifactsToDownload:
+  - electron linux x64
+  - electron mac x64
+  - electron meta data
+  - electron windows arm64
+  - electron windows x64
+  - electron windows x86
+  - ffmpeg linux
+  - ffmpeg mac
+  - ffmpeg windows
+  _ivyModules:
+  - electron-lin-x64
+  - electron-mac-x64
+  - electron-win-arm64
+  - electron-win-ia32
+  - electron-win-x64
+  - electron.headers
+  - electron.lib.arm64
+  - electron.lib.ia32
+  - electron.lib.x64
+  - electron.typings
+  - ffmpeg-lin-x64
+  - ffmpeg-mac-x64
+  - ffmpeg-win-arm64
+  - ffmpeg-win-ia32
+  - ffmpeg-win-x64
+  _platform: linux
+  _publishName: Microsoft.Skype.TPS.Electron
+  _stagingDirectory: $(Build.ArtifactStagingDirectory)
+  _workingDirectory: $(Build.BinariesDirectory)
+
+jobs:
+- job: publish_electron_to_skype_ivy
+  displayName: Publish Electron to Skype IVY
+  pool:
+    vmImage: ubuntu-18.04
+  variables:
+  - group: Electron
+  steps:
+  - template: ../action/setup_agent.yml
+    parameters:
+      platform: ${{ parameters._platform }}
+
+  - template: ../action/checkout_self.yml
+
+  # Install dependencies to get xml2js module which will
+  # be used for ../action/generate_ivy_file.yml
+  - task: Npm@1
+    inputs:
+      command: install
+      workingDir: $(Build.SourcesDirectory)
+
+  - ${{ each artifactName in parameters._artifactsToDownload }}:
+    - task: DownloadPipelineArtifact@0
+      displayName: Download ${{ artifactName }}
+      inputs:
+        pipelineId: ${{ parameters.buildId }}
+        artifactName: ${{ artifactName }}
+        targetPath: ${{ parameters._workingDirectory }}/${{ artifactName }}
+
+  - template: ../action/set_variable_from_file.yml
+    parameters:
+      filePath: '${{ parameters._workingDirectory }}/electron meta data/version.txt'
+      name: Electron.Local.Version
+      stepName: set_version_variable
+
+  - template: ../action/set_variable_from_file.yml
+    parameters:
+      filePath: '${{ parameters._workingDirectory }}/electron meta data/flavour.txt'
+      name: Electron.Local.Flavour
+      stepName: set_flavour_variable
+
+  # Skype IVY uses different branch names than default ones in electron build.
+  # This will map flavours and versions 1:1 to Skype IVY branches
+  - template: ../action/capture_output.yml
+    parameters:
+      # The command should not end with a new line.
+      command: >-
+        python $(Build.SourcesDirectory)/scripts/ivy_branch_name.py
+        --flavour $(Electron.Local.Flavour)
+        --version $(Electron.Local.Version)
+      variable: Electron.Local.Branch
+
+  # Create a files' structure ready to be published.
+  - task: PythonScript@0
+    displayName: Prepare files for upload
+    # TODO(alkuzmin): Support publishing of the current build.
+    inputs:
+      scriptSource: filePath
+      scriptPath: $(Build.SourcesDirectory)/scripts/create_publishing_layout.py
+      arguments: >
+        --config configs/publishing_layout/electron_ivy.layout.json
+        --data buildid=${{ parameters.buildId }} branch=$(Electron.Local.Branch)
+        --input-dir ${{ parameters._workingDirectory }}
+        --output-dir ${{ parameters._stagingDirectory }}
+      failOnStderr: true
+
+  # Vanilla Apache Ant does not contain some Skype IVY specific settings we need to
+  # successfully publish. Download skype-ant and later set ANT_HOME env variable
+  # so ant read settings from modified version.
+  - task: PythonScript@0
+    displayName: Download Skype Ant
+    inputs:
+      scriptSource: filePath
+      scriptPath: $(Build.SourcesDirectory)/scripts/ivy_download_skype_ant.py
+      arguments: >
+        --destination ${{ parameters._workingDirectory }}
+        --username $(IVYImpersonationUsername)
+        --password $(IVYImpersonationAccessToken)
+      failOnStderr: true
+
+  # Impersonation token must be downloaded to the same
+  # directory which will be "baseDir" for ant build.xml
+  - template: ../action/download_impersonation_token.yml
+    # TODO(alkuzmin): Support publishing of the current build.
+    parameters:
+      destination: ${{ parameters._workingDirectory }}
+      password: $(IVYImpersonationAccessToken)
+      publishName: ${{ parameters._publishName }}
+      publishVersion: ${{ parameters.buildId }}
+      username: $(IVYImpersonationUsername)
+      workDirectory: ${{ parameters._workingDirectory }}
+
+  # For each future ivy module generate ivy file and publish
+  - ${{ each ivyModule in parameters._ivyModules }}:
+    - template: ../action/publish_artifacts_to_skype_ivy.yml
+      parameters:
+        ${{ if eq(parameters.dryRun, 'true') }}:
+          condition: false
+        moduleName: ${{ ivyModule }}
+        branchName: $(Electron.Local.Branch)
+        branchBuildId: ${{ parameters.buildId }}
+        antHomeDir: ${{ parameters._workingDirectory }}/skype-ant
+        baseDir: ${{ parameters._workingDirectory }}
+        artifactsDir: >-
+          ${{ parameters._stagingDirectory }}/${{ ivyModule }}/$(Electron.Local.Branch)/${{ parameters.buildId }}
+        ivyFilePath: ${{ parameters._workingDirectory }}/${{ ivyModule }}.xml

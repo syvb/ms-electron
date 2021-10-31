@@ -1,0 +1,4 @@
+{
+  "src/microsoft/patches/backports/chromium/src": "src",
+  "src/microsoft/patches/backports/chromium/v8": "src/v8"
+}

@@ -1,0 +1,3 @@
+{
+  "src/microsoft/patches/backports/electron": "src/electron"
+}

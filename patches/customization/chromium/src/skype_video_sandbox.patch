@@ -1,0 +1,899 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Milan Burda <miburda@microsoft.com>
+Date: Wed, 10 Oct 2018 18:55:46 +0000
+Subject: feat: add ContentBrowserClient::AllowVideoRendererInSandbox()
+ callback
+
+Microsoft patch
+
+diff --git a/content/browser/BUILD.gn b/content/browser/BUILD.gn
+index 1ebd6a50636ca9c1d7697e73ae733ab4bc175519..1df9c25b7a888ceea761e429842b3051c17f4dff 100644
+--- a/content/browser/BUILD.gn
++++ b/content/browser/BUILD.gn
+@@ -2209,6 +2209,10 @@ jumbo_source_set("browser") {
+       "uiautomationcore.lib",
+       "wtsapi32.lib",
+     ]
++    sources += [
++      "//microsoft/src/content/sandbox_win.cc",
++      "//microsoft/src/content/sandbox_win.h",
++    ]
+   }
+ 
+   if (use_udev) {
+diff --git a/content/browser/gpu/gpu_process_host.cc b/content/browser/gpu/gpu_process_host.cc
+index 02747c0d4d7f0bb7ba034f35bcce86a91774bb36..367ae17f45c1195104750a056a1fa7ea666be226 100644
+--- a/content/browser/gpu/gpu_process_host.cc
++++ b/content/browser/gpu/gpu_process_host.cc
+@@ -267,6 +267,7 @@ static const char* const kSwitchNames[] = {
+     switches::kDisableRemoteCoreAnimation,
+     switches::kShowMacOverlayBorders,
+     switches::kUseHighGPUThreadPriorityForPerfTests,
++    service_manager::switches::kMsAllowVideorenderer,
+ #endif
+ #if defined(USE_OZONE)
+     switches::kOzonePlatform,
+diff --git a/content/browser/renderer_host/render_process_host_impl.cc b/content/browser/renderer_host/render_process_host_impl.cc
+index 3832bd759c65aeccbe44c1b80f1291586177fb36..1fb7ffd7eb51c136ec5f0e01f509c75c7c48536f 100644
+--- a/content/browser/renderer_host/render_process_host_impl.cc
++++ b/content/browser/renderer_host/render_process_host_impl.cc
+@@ -262,6 +262,7 @@
+ #include "content/browser/renderer_host/dwrite_font_proxy_impl_win.h"
+ #include "content/public/common/font_cache_dispatcher_win.h"
+ #include "content/public/common/font_cache_win.mojom.h"
++#include "microsoft/src/content/sandbox_win.h"
+ #include "sandbox/win/src/sandbox_policy.h"
+ #include "services/service_manager/sandbox/win/sandbox_win.h"
+ #include "ui/display/win/dpi.h"
+@@ -406,17 +407,19 @@ SiteProcessMap* GetSiteProcessMapForBrowserContext(BrowserContext* context) {
+ class RendererSandboxedProcessLauncherDelegate
+     : public SandboxedProcessLauncherDelegate {
+  public:
+-  RendererSandboxedProcessLauncherDelegate()
++  RendererSandboxedProcessLauncherDelegate(int process_id)
++      : process_id_(process_id)
+ #if defined(OS_WIN)
+-      : renderer_code_integrity_enabled_(
++        ,
++        renderer_code_integrity_enabled_(
+             GetContentClient()->browser()->IsRendererCodeIntegrityEnabled())
+ #endif
+   {
+   }
+ 
+ #if BUILDFLAG(USE_ZYGOTE_HANDLE)
+-  RendererSandboxedProcessLauncherDelegate(bool use_zygote):
+-    use_zygote_(use_zygote) {}
++  RendererSandboxedProcessLauncherDelegate(int process_id, bool use_zygote)
++      : process_id_(process_id), use_zygote_(use_zygote) {}
+ #endif
+ 
+   ~RendererSandboxedProcessLauncherDelegate() override {}
+@@ -430,11 +433,15 @@ class RendererSandboxedProcessLauncherDelegate
+             GetSandboxType());
+     if (!sid.empty())
+       service_manager::SandboxWin::AddAppContainerPolicy(policy, sid.c_str());
++    if (GetContentClient()->browser()->AllowVideoRendererInSandbox(GetID()))
++      if (!microsoft::AllowVideoRendererInSandbox(policy))
++        return false;
+     ContentBrowserClient::RendererSpawnFlags flags(
+         ContentBrowserClient::RendererSpawnFlags::NONE);
+     if (renderer_code_integrity_enabled_)
+       flags = ContentBrowserClient::RendererSpawnFlags::RENDERER_CODE_INTEGRITY;
+-    return GetContentClient()->browser()->PreSpawnRenderer(policy, flags);
++    return GetContentClient()->browser()->PreSpawnRenderer(policy, flags,
++                                                           GetID());
+   }
+ #endif  // OS_WIN
+ 
+@@ -457,7 +464,10 @@ class RendererSandboxedProcessLauncherDelegate
+     return service_manager::SandboxType::kRenderer;
+   }
+ 
++  int GetID() const { return process_id_; }
++
+  private:
++  int process_id_;
+ #if defined(OS_WIN)
+   const bool renderer_code_integrity_enabled_;
+ #endif
+@@ -1872,9 +1882,11 @@ bool RenderProcessHostImpl::Init() {
+ 
+ #if BUILDFLAG(USE_ZYGOTE_HANDLE)
+     bool use_zygote = !cmd_line->HasSwitch(switches::kNoZygote);
+-    auto delegate = std::make_unique<RendererSandboxedProcessLauncherDelegate>(use_zygote);
++    auto delegate = std::make_unique<RendererSandboxedProcessLauncherDelegate>(
++        GetID(), use_zygote);
+ #else
+-    auto delegate = std::make_unique<RendererSandboxedProcessLauncherDelegate>();
++    auto delegate =
++        std::make_unique<RendererSandboxedProcessLauncherDelegate>(GetID());
+ #endif
+ 
+     // Spawn the child process asynchronously to avoid blocking the UI thread.
+@@ -3297,6 +3309,9 @@ void RenderProcessHostImpl::PropagateBrowserCommandLineToRenderer(
+ #if defined(OS_MACOSX)
+     // Allow this to be set when invoking the browser and relayed along.
+     service_manager::switches::kEnableSandboxLogging,
++#endif
++#if defined(OS_MACOSX) || defined(OS_LINUX)
++    service_manager::switches::kMsAllowVideorenderer,
+ #endif
+     switches::kAgcStartupMinVolume,
+     switches::kAllowLoopbackInPeerConnection,
+diff --git a/content/browser/sandbox_parameters_mac.mm b/content/browser/sandbox_parameters_mac.mm
+index 93bf3c4314b826b541a3bd8c9404d386afc45c0f..19b100f7973040fab68ede3b8b5d5ad8e212bbee 100644
+--- a/content/browser/sandbox_parameters_mac.mm
++++ b/content/browser/sandbox_parameters_mac.mm
+@@ -140,6 +140,13 @@ void SetupCommonSandboxParameters(sandbox::SeatbeltExecClient* client) {
+       base::FeatureList::IsEnabled(features::kMacSyscallSandbox)));
+ 
+   CHECK(client->SetBooleanParameter("FILTER_SYSCALLS_DEBUG", false));
++
++  bool allow_videorenderer = 
++      command_line->HasSwitch(service_manager::switches::kMsAllowVideorenderer);
++
++  CHECK(client->SetBooleanParameter(
++      service_manager::SandboxMac::kSandboxMsAllowVideorenderer,
++      allow_videorenderer));
+ }
+ 
+ void SetupNetworkSandboxParameters(sandbox::SeatbeltExecClient* client) {
+diff --git a/content/browser/zygote_host/zygote_host_impl_linux.cc b/content/browser/zygote_host/zygote_host_impl_linux.cc
+index ced1c83e82b75c7c7c1957553b2f6b299920fa68..570bc24f204146e7edd09aaa142876a08c4e5f68 100644
+--- a/content/browser/zygote_host/zygote_host_impl_linux.cc
++++ b/content/browser/zygote_host/zygote_host_impl_linux.cc
+@@ -114,14 +114,12 @@ void ZygoteHostImpl::Init(const base::CommandLine& command_line) {
+     // root.
+     use_suid_sandbox_for_adj_oom_score_ = use_suid_sandbox_;
+   } else {
+-    LOG(FATAL)
+-        << "No usable sandbox! Update your kernel or see "
+-           "https://chromium.googlesource.com/chromium/src/+/master/"
+-           "docs/linux/suid_sandbox_development.md for more information on "
+-           "developing with the SUID sandbox. "
+-           "If you want to live dangerously and need an immediate workaround, "
+-           "you can try using --"
+-        << service_manager::switches::kNoSandbox << ".";
++    // Renderer processes need access to /dev/shm/ filesystem. We need
++    // to disable layer 1 sandbox in zygote as it would create chrooted
++    // environment.
++    // Renderer processes are sandboxed using seccomp-bpf layer 2 sandbox.
++    LOG(INFO)
++        << "Layer 1 sandbox has been disabled. ";
+   }
+ }
+ 
+diff --git a/content/gpu/gpu_sandbox_hook_linux.cc b/content/gpu/gpu_sandbox_hook_linux.cc
+index 1b8cd6396f322dac7f6cb3a189824fb2e77387f8..3e4174bc48eba87e9ce671f3ea297c8b4a17dfa9 100644
+--- a/content/gpu/gpu_sandbox_hook_linux.cc
++++ b/content/gpu/gpu_sandbox_hook_linux.cc
+@@ -296,7 +296,7 @@ void AddStandardGpuWhiteList(std::vector<BrokerFilePermission>* permissions) {
+ 
+   // For shared memory.
+   permissions->push_back(
+-      BrokerFilePermission::ReadWriteCreateTemporaryRecursive(kDevShm));
++      BrokerFilePermission::ReadWriteStatWithIntermediatesRecursive(kDevShm));
+ 
+   // For DRI cards.
+   for (int i = 0; i <= 9; ++i) {
+@@ -444,6 +444,7 @@ sandbox::syscall_broker::BrokerCommandSet CommandSetForGPU(
+   command_set.set(sandbox::syscall_broker::COMMAND_ACCESS);
+   command_set.set(sandbox::syscall_broker::COMMAND_OPEN);
+   command_set.set(sandbox::syscall_broker::COMMAND_STAT);
++  command_set.set(sandbox::syscall_broker::COMMAND_STATFS);
+   if (IsChromeOS() && (options.use_amd_specific_policies ||
+                        options.use_intel_specific_policies)) {
+     command_set.set(sandbox::syscall_broker::COMMAND_READLINK);
+diff --git a/content/public/browser/content_browser_client.cc b/content/public/browser/content_browser_client.cc
+index 4af654e2a2dbb5450b3f8ca1d85b0e6c94825c42..1103168c286e495629e41664de5ae43dc71f6772 100644
+--- a/content/public/browser/content_browser_client.cc
++++ b/content/public/browser/content_browser_client.cc
+@@ -700,10 +700,15 @@ std::unique_ptr<NavigationUIData> ContentBrowserClient::GetNavigationUIData(
+ 
+ #if defined(OS_WIN)
+ bool ContentBrowserClient::PreSpawnRenderer(sandbox::TargetPolicy* policy,
+-                                            RendererSpawnFlags flags) {
++                                            RendererSpawnFlags flags,
++                                            int process_id) {
+   return true;
+ }
+ 
++bool ContentBrowserClient::AllowVideoRendererInSandbox(int process_id) {
++  return false;
++}
++
+ base::string16 ContentBrowserClient::GetAppContainerSidForSandboxType(
+     service_manager::SandboxType sandbox_type) {
+   // Embedders should override this method and return different SIDs for each
+diff --git a/content/public/browser/content_browser_client.h b/content/public/browser/content_browser_client.h
+index d968ab756f8628a3e52b57c9cacb50dea7819157..634166dd4904e7b10922a4ef1a1b289e979ebae1 100644
+--- a/content/public/browser/content_browser_client.h
++++ b/content/public/browser/content_browser_client.h
+@@ -1204,7 +1204,11 @@ class CONTENT_EXPORT ContentBrowserClient {
+   // is launched. It gives the embedder a chance to add loosen the sandbox
+   // policy.
+   virtual bool PreSpawnRenderer(sandbox::TargetPolicy* policy,
+-                                RendererSpawnFlags flags);
++                                RendererSpawnFlags flags,
++                                int process_id);
++
++  // To be implemented by Electron to enable per-renderer granularity
++  virtual bool AllowVideoRendererInSandbox(int process_id);
+ 
+   // Returns the AppContainer SID for the specified sandboxed process type, or
+   // empty string if this sandboxed process type does not support living inside
+diff --git a/content/renderer/BUILD.gn b/content/renderer/BUILD.gn
+index 4f85483915e9270944fd55b9b8ebe8705d69e13b..8f25f4fd4530cfd46cd0318ea04be31d16f679ff 100644
+--- a/content/renderer/BUILD.gn
++++ b/content/renderer/BUILD.gn
+@@ -249,6 +249,7 @@ target(link_target_type, "renderer") {
+     "renderer_main_platform_delegate_linux.cc",
+     "renderer_main_platform_delegate_mac.mm",
+     "renderer_main_platform_delegate_win.cc",
++    "renderer_sandbox_hook_linux.cc",
+     "sad_plugin.cc",
+     "sad_plugin.h",
+     "seccomp_sandbox_status_android.cc",
+diff --git a/content/renderer/renderer_main_platform_delegate_linux.cc b/content/renderer/renderer_main_platform_delegate_linux.cc
+index ca87fed75a02b125166e92a76d19b42d6165f37c..9909987b66138ed9db4edd0077f01caafa51f214 100644
+--- a/content/renderer/renderer_main_platform_delegate_linux.cc
++++ b/content/renderer/renderer_main_platform_delegate_linux.cc
+@@ -7,13 +7,16 @@
+ #include <errno.h>
+ #include <sys/stat.h>
+ 
++#include "base/bind.h"
+ #include "base/check_op.h"
+ #include "base/command_line.h"
+ #include "base/files/file_util.h"
+ #include "content/public/common/content_features.h"
+ #include "content/public/common/content_switches.h"
+ #include "content/public/common/sandbox_init.h"
++#include "content/renderer/renderer_sandbox_hook_linux.h"
+ #include "services/service_manager/sandbox/sandbox.h"
++#include "services/service_manager/sandbox/switches.h"
+ 
+ namespace content {
+ 
+@@ -35,10 +38,13 @@ bool RendererMainPlatformDelegate::EnableSandbox() {
+   //
+   // Anything else is started in InitializeSandbox().
+   service_manager::SandboxLinux::Options options;
++  service_manager::SandboxLinux::PreSandboxHook pre_sandbox_hook;
++  if (base::CommandLine::ForCurrentProcess()->HasSwitch(service_manager::switches::kMsAllowVideorenderer)) {
++    pre_sandbox_hook = base::BindOnce(RendererProcessPreSandboxHook);
++  }
+   service_manager::Sandbox::Initialize(
+       service_manager::SandboxTypeFromCommandLine(
+-          *base::CommandLine::ForCurrentProcess()),
+-      service_manager::SandboxLinux::PreSandboxHook(), options);
++          *base::CommandLine::ForCurrentProcess()), std::move(pre_sandbox_hook), options);
+ 
+   // about:sandbox uses a value returned from SandboxLinux::GetStatus() before
+   // any renderer has been started.
+diff --git a/content/renderer/renderer_sandbox_hook_linux.cc b/content/renderer/renderer_sandbox_hook_linux.cc
+new file mode 100644
+index 0000000000000000000000000000000000000000..0847f52d5bf7b00db8eff974a788c7dc34f09c01
+--- /dev/null
++++ b/content/renderer/renderer_sandbox_hook_linux.cc
+@@ -0,0 +1,53 @@
++#include "content/renderer/renderer_sandbox_hook_linux.h"
++
++#include <errno.h>
++
++#include "sandbox/linux/syscall_broker/broker_command.h"
++#include "sandbox/linux/syscall_broker/broker_file_permission.h"
++#include "sandbox/linux/syscall_broker/broker_process.h"
++#include "services/service_manager/sandbox/linux/sandbox_linux.h"
++
++using sandbox::syscall_broker::BrokerFilePermission;
++using sandbox::syscall_broker::BrokerProcess;
++
++namespace content {
++namespace {
++
++void AddSharedMemoryWhiteList(std::vector<BrokerFilePermission>* permissions) {
++  static const char kDevShm[] = "/dev/shm/";
++
++  permissions->push_back(
++      BrokerFilePermission::ReadWriteStatWithIntermediatesRecursive(kDevShm));
++}
++
++std::vector<BrokerFilePermission> FilePermissionsForRenderer(
++    const service_manager::SandboxSeccompBPF::Options& options) {
++  std::vector<BrokerFilePermission> permissions;
++  AddSharedMemoryWhiteList(&permissions);
++  return permissions;
++}
++
++/*
++ * The Linux glibc shm_open(3) implementation uses statfs(2) and open(2)
++ * system calls on the /dev/shm/ filesystem.
++ */
++sandbox::syscall_broker::BrokerCommandSet CommandSetForRenderer(
++    const service_manager::SandboxLinux::Options& options) {
++  sandbox::syscall_broker::BrokerCommandSet command_set;
++  command_set.set(sandbox::syscall_broker::COMMAND_OPEN);
++  command_set.set(sandbox::syscall_broker::COMMAND_STATFS);
++  return command_set;
++}
++
++}  // namespace
++
++bool RendererProcessPreSandboxHook(service_manager::SandboxLinux::Options options) {
++  service_manager::SandboxLinux::GetInstance()->StartBrokerProcess(
++      CommandSetForRenderer(options), FilePermissionsForRenderer(options),
++      service_manager::SandboxLinux::PreSandboxHook(), options);
++
++  errno = 0;
++  return true;
++}
++
++}  // namespace content
+\ No newline at end of file
+diff --git a/content/renderer/renderer_sandbox_hook_linux.h b/content/renderer/renderer_sandbox_hook_linux.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..b06ccda36bc7e121f794f5c3623007eea65e43f9
+--- /dev/null
++++ b/content/renderer/renderer_sandbox_hook_linux.h
+@@ -0,0 +1,12 @@
++#ifndef CONTENT_RENDERER_RENDERER_SANDBOX_HOOK_LINUX_H_
++#define CONTENT_RENDERER_RENDERER_SANDBOX_HOOK_LINUX_H_
++
++#include "services/service_manager/sandbox/linux/sandbox_linux.h"
++
++namespace content {
++
++bool RendererProcessPreSandboxHook(service_manager::SandboxLinux::Options options);
++
++}  // namespace content
++
++#endif  // CONTENT_RENDERER_RENDERER_SANDBOX_HOOK_LINUX_H_
+diff --git a/sandbox/linux/syscall_broker/broker_client.cc b/sandbox/linux/syscall_broker/broker_client.cc
+index fb897eb6ff880452b2cb0d07c995245526fdd8f4..16346c697b744cc6b298024a3cace0ccb7fd0eeb 100644
+--- a/sandbox/linux/syscall_broker/broker_client.cc
++++ b/sandbox/linux/syscall_broker/broker_client.cc
+@@ -11,6 +11,7 @@
+ #include <string.h>
+ #include <sys/socket.h>
+ #include <sys/stat.h>
++#include <sys/statfs.h>
+ 
+ #include <utility>
+ 
+@@ -176,6 +177,20 @@ int BrokerClient::Stat(const char* pathname,
+                            sizeof(*sb));
+ }
+ 
++int BrokerClient::Statfs(const char* pathname,
++                       struct statfs* sb) const {
++  if (!pathname || !sb)
++    return -EFAULT;
++
++  if (fast_check_in_client_ &&
++      !CommandStatfsIsSafe(allowed_command_set_, broker_permission_list_,
++                         pathname, nullptr)) {
++    return -broker_permission_list_.denied_errno();
++  }
++  return StatFamilySyscall(COMMAND_STATFS, pathname, false, sb,
++                           sizeof(*sb));
++}
++
+ int BrokerClient::Stat64(const char* pathname,
+                          bool follow_links,
+                          struct stat64* sb) const {
+@@ -297,7 +312,7 @@ int BrokerClient::PathAndFlagsSyscallReturningFD(BrokerCommand syscall_type,
+ }
+ 
+ // Make a remote system call over IPC for syscalls that take a path
+-// and return stat buffers (currently stat() and stat64()).
++// and return stat buffers (currently stat(), statfs() and stat64()).
+ // Will return -errno like a real system call.
+ // This function needs to be async signal safe.
+ int BrokerClient::StatFamilySyscall(BrokerCommand syscall_type,
+diff --git a/sandbox/linux/syscall_broker/broker_client.h b/sandbox/linux/syscall_broker/broker_client.h
+index 842ee16a0c70aca2282534d52923dbaecb617145..cc7fad3eb9eb409f1a6738c419c1b1a3524b0a2c 100644
+--- a/sandbox/linux/syscall_broker/broker_client.h
++++ b/sandbox/linux/syscall_broker/broker_client.h
+@@ -6,6 +6,7 @@
+ #define SANDBOX_LINUX_SYSCALL_BROKER_BROKER_CLIENT_H_
+ 
+ #include <sys/stat.h>
++#include <sys/statfs.h>
+ #include <sys/types.h>
+ #include <unistd.h>
+ 
+@@ -70,6 +71,9 @@ class BrokerClient {
+   // Can be used in place of stat()/stat64()/lstat()/lstat64()
+   int Stat(const char* pathname, bool follow_links, struct stat* sb) const;
+   int Stat64(const char* pathname, bool folllow_links, struct stat64* sb) const;
++  
++  // Can be used in place of statfs().
++  int Statfs(const char* pathname, struct statfs* sb) const;
+ 
+   // Can be used in place of unlink().
+   int Unlink(const char* unlink) const;
+diff --git a/sandbox/linux/syscall_broker/broker_command.cc b/sandbox/linux/syscall_broker/broker_command.cc
+index 46533d381dcb35675d0e75f8b9c92ec195731d40..fc4a0de946fbf28c3d5425068e21cf1949677f5e 100644
+--- a/sandbox/linux/syscall_broker/broker_command.cc
++++ b/sandbox/linux/syscall_broker/broker_command.cc
+@@ -85,6 +85,15 @@ bool CommandStatIsSafe(const BrokerCommandSet& command_set,
+          policy.GetFileNameIfAllowedToStat(requested_filename, filename_to_use);
+ }
+ 
++bool CommandStatfsIsSafe(const BrokerCommandSet& command_set,
++                       const BrokerPermissionList& policy,
++                       const char* requested_filename,
++                       const char** filename_to_use) {
++  return command_set.test(COMMAND_STATFS) &&
++         policy.GetFileNameIfAllowedToStatfs(requested_filename, filename_to_use);
++}
++
++
+ bool CommandUnlinkIsSafe(const BrokerCommandSet& command_set,
+                          const BrokerPermissionList& policy,
+                          const char* requested_filename,
+diff --git a/sandbox/linux/syscall_broker/broker_command.h b/sandbox/linux/syscall_broker/broker_command.h
+index 1c4596778b0f53ebac10f3809d8e0623bb61d02a..f08a7556269779ae40308f0ca5dd571f10f098e5 100644
+--- a/sandbox/linux/syscall_broker/broker_command.h
++++ b/sandbox/linux/syscall_broker/broker_command.h
+@@ -40,6 +40,7 @@ enum BrokerCommand {
+   COMMAND_RENAME,
+   COMMAND_RMDIR,
+   COMMAND_STAT,
++  COMMAND_STATFS,
+   COMMAND_STAT64,
+   COMMAND_UNLINK,
+ 
+@@ -101,6 +102,11 @@ bool CommandStatIsSafe(const BrokerCommandSet& command_set,
+                        const char* requested_filename,
+                        const char** filename_to_use);
+ 
++bool CommandStatfsIsSafe(const BrokerCommandSet& command_set,
++                       const BrokerPermissionList& policy,
++                       const char* requested_filename,
++                       const char** filename_to_use);
++
+ bool CommandUnlinkIsSafe(const BrokerCommandSet& command_set,
+                          const BrokerPermissionList& policy,
+                          const char* requested_filename,
+diff --git a/sandbox/linux/syscall_broker/broker_file_permission.cc b/sandbox/linux/syscall_broker/broker_file_permission.cc
+index 1e9fb4de73936b94e6412a5c9687f4abe172d696..80008c1e82b929f08638d99ffa00ac694f4a3f32 100644
+--- a/sandbox/linux/syscall_broker/broker_file_permission.cc
++++ b/sandbox/linux/syscall_broker/broker_file_permission.cc
+@@ -48,6 +48,33 @@ bool BrokerFilePermission::ValidatePath(const char* path) {
+   return true;
+ }
+ 
++// Async signal safe
++bool BrokerFilePermission::ValidatePathAllowTrailingSlash(const char* path) {
++  if (!path)
++    return false;
++
++  const size_t len = strlen(path);
++  // No empty paths
++  if (len == 0)
++    return false;
++  // Paths must be absolute and not relative
++  if (path[0] != '/')
++    return false;
++  // No trailing /..
++  if (len >= 3 && path[len - 3] == '/' && path[len - 2] == '.' &&
++      path[len - 1] == '.')
++    return false;
++  // No /../ anywhere
++  for (size_t i = 0; i < len; i++) {
++    if (path[i] == '/' && (len - i) > 3) {
++      if (path[i + 1] == '.' && path[i + 2] == '.' && path[i + 3] == '/') {
++        return false;
++      }
++    }
++  }
++  return true;
++}
++
+ // Async signal safe
+ // Calls std::string::c_str(), strncmp and strlen. All these
+ // methods are async signal safe in common standard libs.
+@@ -196,6 +223,23 @@ bool BrokerFilePermission::CheckOpen(const char* requested_filename,
+   return true;
+ }
+ 
++bool BrokerFilePermission::CheckStatfs(const char* requested_filename,
++                                     const char** file_to_access) const {
++  if (!ValidatePathAllowTrailingSlash(requested_filename))
++    return false;
++
++  if (!allow_stat_with_intermediates_)
++    return false;
++
++  if (!MatchPath(requested_filename))
++    return false;
++
++  if (file_to_access)
++    *file_to_access = recursive_ ? requested_filename : path_.c_str();
++
++  return true;
++}
++
+ bool BrokerFilePermission::CheckStat(const char* requested_filename,
+                                      const char** file_to_access) const {
+   if (!ValidatePath(requested_filename))
+diff --git a/sandbox/linux/syscall_broker/broker_file_permission.h b/sandbox/linux/syscall_broker/broker_file_permission.h
+index 654bd2680582237c5b057287eb2ffb9cea543172..d8c5199b19ac191c36e29898bedf60524ec20b0f 100644
+--- a/sandbox/linux/syscall_broker/broker_file_permission.h
++++ b/sandbox/linux/syscall_broker/broker_file_permission.h
+@@ -83,6 +83,15 @@ class SANDBOX_EXPORT BrokerFilePermission {
+         StatWithIntermediatesPermission::kBlockStatWithIntermediates);
+   }
+ 
++  static BrokerFilePermission ReadWriteStatWithIntermediatesRecursive(
++      const std::string& path) {
++    return BrokerFilePermission(
++        path, RecursionOption::kRecursive, PersistenceOption::kPermanent,
++        ReadPermission::kAllowRead, WritePermission::kAllowWrite,
++        CreatePermission::kBlockCreate,
++        StatWithIntermediatesPermission::kAllowStatWithIntermediates);
++  }
++
+   // Temporary files must always be newly created and do not confer rights to
+   // use pre-existing files of the same name.
+   static BrokerFilePermission ReadWriteCreateTemporary(
+@@ -149,6 +158,16 @@ class SANDBOX_EXPORT BrokerFilePermission {
+   // Async signal safe if |file_to_access| is NULL
+   bool CheckStat(const char* requested_filename,
+                  const char** file_to_access) const;
++  
++  // Returns true if |requested_filename| is allowed to be statfs'd
++  // by this permission as per statfs(2).
++  // If |file_to_open| is not NULL, it is set to point to either
++  // the |requested_filename| in the case of a recursive match,
++  // or a pointer to the matched path in the whitelist if an absolute
++  // match.
++  // Async signal safe if |file_to_access| is NULL
++  bool CheckStatfs(const char* requested_filename,
++                 const char** file_to_access) const;
+ 
+  private:
+   friend class BrokerFilePermissionTester;
+@@ -169,6 +188,12 @@ class SANDBOX_EXPORT BrokerFilePermission {
+   // * No /../ path traversal
+   static bool ValidatePath(const char* path);
+ 
++  // ValidateFilesystemPath checks |path| and returns true if these conditions are met
++  // * Greater than 0 length
++  // * Is an absolute path
++  // * No /../ path traversal
++  static bool ValidatePathAllowTrailingSlash(const char* path);
++
+   // MatchPath returns true if |requested_filename| is covered by this instance
+   bool MatchPath(const char* requested_filename) const;
+ 
+diff --git a/sandbox/linux/syscall_broker/broker_host.cc b/sandbox/linux/syscall_broker/broker_host.cc
+index 631c90b350ca36216e648eba30471031cd2cdf4b..3795f58b8647768270f7fd77e7bb72e2c8bd400d 100644
+--- a/sandbox/linux/syscall_broker/broker_host.cc
++++ b/sandbox/linux/syscall_broker/broker_host.cc
+@@ -10,6 +10,7 @@
+ #include <stddef.h>
+ #include <sys/socket.h>
+ #include <sys/stat.h>
++#include <sys/statfs.h>
+ #include <sys/syscall.h>
+ #include <sys/types.h>
+ #include <unistd.h>
+@@ -180,6 +181,29 @@ void RmdirFileForIPC(const BrokerCommandSet& allowed_command_set,
+   RAW_CHECK(reply->AddIntToMessage(0));
+ }
+ 
++// Perform statfs(2) on |requested_filename| and write the result to
++// |return_val|.
++void StatFilesystemForIPC(const BrokerCommandSet& allowed_command_set,
++                    const BrokerPermissionList& permission_list,
++                    const std::string& requested_filename,
++                    BrokerSimpleMessage* reply) {
++  const char* file_to_access = nullptr;
++  if (!CommandStatfsIsSafe(allowed_command_set, permission_list,
++                         requested_filename.c_str(), &file_to_access)) {
++    RAW_CHECK(reply->AddIntToMessage(-permission_list.denied_errno()));
++    return;
++  }
++  struct statfs sb;
++  int sts = statfs(file_to_access, &sb);
++  if (sts < 0) {
++    RAW_CHECK(reply->AddIntToMessage(-errno));
++    return;
++  }
++  RAW_CHECK(reply->AddIntToMessage(0));
++  RAW_CHECK(
++      reply->AddDataToMessage(reinterpret_cast<char*>(&sb), sizeof(sb)));
++}
++
+ // Perform stat(2) on |requested_filename| and write the result to
+ // |return_val|.
+ void StatFileForIPC(const BrokerCommandSet& allowed_command_set,
+@@ -329,6 +353,17 @@ bool HandleRemoteCommand(const BrokerCommandSet& allowed_command_set,
+                      requested_filename, !!follow_links, reply);
+       break;
+     }
++    case COMMAND_STATFS: {
++      const char* requested_filename;
++      if (!message->ReadString(&requested_filename))
++        return false;
++      int follow_links;
++      if (!message->ReadInt(&follow_links))
++        return false;
++      StatFilesystemForIPC(allowed_command_set, permission_list,
++                     requested_filename, reply);
++      break;
++    }
+     case COMMAND_UNLINK: {
+       const char* requested_filename;
+       if (!message->ReadString(&requested_filename))
+diff --git a/sandbox/linux/syscall_broker/broker_permission_list.cc b/sandbox/linux/syscall_broker/broker_permission_list.cc
+index 397cfff7630b635df5f3692a02d1372f8de43e8f..2b3cdde55b97973708c93d96f888f0a6b5532e5e 100644
+--- a/sandbox/linux/syscall_broker/broker_permission_list.cc
++++ b/sandbox/linux/syscall_broker/broker_permission_list.cc
+@@ -103,6 +103,18 @@ bool BrokerPermissionList::GetFileNameIfAllowedToOpen(
+   return false;
+ }
+ 
++bool BrokerPermissionList::GetFileNameIfAllowedToStatfs(
++    const char* requested_filename,
++    const char** file_to_statfs) const {
++  if (!CheckCallerArgs(file_to_statfs))
++    return false;
++  for (size_t i = 0; i < num_of_permissions_; i++) {
++    if (permissions_array_[i].CheckStatfs(requested_filename, file_to_statfs))
++      return true;
++  }
++  return false;
++}
++
+ bool BrokerPermissionList::GetFileNameIfAllowedToStat(
+     const char* requested_filename,
+     const char** file_to_stat) const {
+diff --git a/sandbox/linux/syscall_broker/broker_permission_list.h b/sandbox/linux/syscall_broker/broker_permission_list.h
+index 2cb30f161414ce2e033f106402a4bdea53e067f5..87f0beb559d3eee51baa252cadd647df817ce44d 100644
+--- a/sandbox/linux/syscall_broker/broker_permission_list.h
++++ b/sandbox/linux/syscall_broker/broker_permission_list.h
+@@ -75,6 +75,11 @@ class BrokerPermissionList {
+   // Async signal safe if and only if |file_to_open| is NULL.
+   bool GetFileNameIfAllowedToStat(const char* requested_filename,
+                                   const char** file_to_access) const;
++  
++  // Check if calling statfs() should be allowed on |requested_filename|.
++  // Async signal safe if and only if |file_to_access| is NULL.
++  bool GetFileNameIfAllowedToStatfs(const char* requested_filename,
++                                  const char** file_to_access) const;
+ 
+   int denied_errno() const { return denied_errno_; }
+ 
+diff --git a/sandbox/linux/syscall_broker/broker_process.cc b/sandbox/linux/syscall_broker/broker_process.cc
+index 8321d23798d85ea8125ca86f50f086a9cb1c3e50..e80b8e8d2caa6b4d2370b84abdb98ea81763450a 100644
+--- a/sandbox/linux/syscall_broker/broker_process.cc
++++ b/sandbox/linux/syscall_broker/broker_process.cc
+@@ -7,6 +7,7 @@
+ #include <fcntl.h>
+ #include <signal.h>
+ #include <sys/stat.h>
++#include <sys/statfs.h>
+ #include <sys/syscall.h>
+ #include <sys/types.h>
+ #include <sys/wait.h>
+@@ -150,6 +151,9 @@ bool BrokerProcess::IsSyscallAllowed(int sysno) const {
+       return !fast_check_in_client_ || allowed_command_set_.test(COMMAND_RMDIR);
+ #endif
+ 
++    case __NR_statfs:
++      return !fast_check_in_client_ || allowed_command_set_.test(COMMAND_STATFS);
++
+ #if !defined(__aarch64__)
+     case __NR_stat:
+     case __NR_lstat:
+@@ -232,6 +236,12 @@ int BrokerProcess::Stat64(const char* pathname,
+   return broker_client_->Stat64(pathname, follow_links, sb);
+ }
+ 
++int BrokerProcess::Statfs(const char* pathname,
++                        struct statfs* sb) const {
++  RAW_CHECK(initialized_);
++  return broker_client_->Statfs(pathname, sb);
++}
++
+ int BrokerProcess::Unlink(const char* pathname) const {
+   RAW_CHECK(initialized_);
+   return broker_client_->Unlink(pathname);
+@@ -343,6 +353,11 @@ intptr_t BrokerProcess::SIGSYS_Handler(const sandbox::arch_seccomp_data& args,
+                                   true,
+                                   reinterpret_cast<struct stat*>(args.args[1]));
+ #endif
++#if defined(__NR_statfs)
++    case __NR_statfs:
++      return broker_process->Statfs(reinterpret_cast<const char*>(args.args[0]),
++                                  reinterpret_cast<struct statfs*>(args.args[1]));
++#endif
+ #if defined(__NR_stat64)
+     case __NR_stat64:
+       return broker_process->Stat64(
+diff --git a/sandbox/linux/syscall_broker/broker_process.h b/sandbox/linux/syscall_broker/broker_process.h
+index e23d9e3544a59e632513e0e553dc3a0be05d8cd0..073af3fdb8e1c71156572bbea958666cd959389d 100644
+--- a/sandbox/linux/syscall_broker/broker_process.h
++++ b/sandbox/linux/syscall_broker/broker_process.h
+@@ -6,6 +6,7 @@
+ #define SANDBOX_LINUX_SYSCALL_BROKER_BROKER_PROCESS_H_
+ 
+ #include <sys/stat.h>
++#include <sys/statfs.h>
+ 
+ #include <memory>
+ #include <string>
+@@ -115,6 +116,9 @@ class SANDBOX_EXPORT BrokerProcess {
+   int Stat(const char* pathname, bool follow_links, struct stat* sb) const;
+   int Stat64(const char* pathname, bool follow_links, struct stat64* sb) const;
+ 
++  // Can be used in place of statfs().
++  int Statfs(const char* pathname, struct statfs* sb) const;
++
+   // Can be used in place of unlink().
+   int Unlink(const char* path) const;
+ 
+diff --git a/services/service_manager/sandbox/linux/bpf_broker_policy_linux.cc b/services/service_manager/sandbox/linux/bpf_broker_policy_linux.cc
+index 68af74e1fba6714be409dd75262b3fc2006ac504..93fcf87d9d038829abf532b57f7a9f5df9884d03 100644
+--- a/services/service_manager/sandbox/linux/bpf_broker_policy_linux.cc
++++ b/services/service_manager/sandbox/linux/bpf_broker_policy_linux.cc
+@@ -74,6 +74,12 @@ ResultExpr BrokerProcessPolicy::EvaluateSyscall(int sysno) const {
+         return Allow();
+       break;
+ #endif
++#if defined(__NR_statfs)
++    case __NR_statfs:
++      if (allowed_command_set_.test(sandbox::syscall_broker::COMMAND_STATFS))
++        return Allow();
++      break;
++#endif
+ #if defined(__NR_stat64)
+     case __NR_stat64:
+       if (allowed_command_set_.test(sandbox::syscall_broker::COMMAND_STAT))
+diff --git a/services/service_manager/sandbox/linux/bpf_renderer_policy_linux.cc b/services/service_manager/sandbox/linux/bpf_renderer_policy_linux.cc
+index a85c0ea8678c49583364bb38144403380d8cd99f..751a412c61347e86bf3c8ca8a7547e451b3b33cd 100644
+--- a/services/service_manager/sandbox/linux/bpf_renderer_policy_linux.cc
++++ b/services/service_manager/sandbox/linux/bpf_renderer_policy_linux.cc
+@@ -12,8 +12,10 @@
+ #include "sandbox/linux/seccomp-bpf-helpers/sigsys_handlers.h"
+ #include "sandbox/linux/seccomp-bpf-helpers/syscall_parameters_restrictions.h"
+ #include "sandbox/linux/seccomp-bpf-helpers/syscall_sets.h"
++#include "sandbox/linux/syscall_broker/broker_process.h"
+ #include "sandbox/linux/system_headers/linux_syscalls.h"
+ #include "services/service_manager/sandbox/linux/sandbox_linux.h"
++#include "services/service_manager/sandbox/switches.h"
+ 
+ // TODO(vignatti): replace the local definitions below with #include
+ // <linux/dma-buf.h> once kernel version 4.6 becomes widely used.
+@@ -31,6 +33,8 @@ using sandbox::bpf_dsl::Allow;
+ using sandbox::bpf_dsl::Arg;
+ using sandbox::bpf_dsl::Error;
+ using sandbox::bpf_dsl::ResultExpr;
++using sandbox::bpf_dsl::Trap;
++using sandbox::syscall_broker::BrokerProcess;
+ 
+ namespace service_manager {
+ 
+@@ -103,9 +107,17 @@ ResultExpr RendererProcessPolicy::EvaluateSyscall(int sysno) const {
+       // See crbug.com/662450 and setrlimit comment above.
+       return sandbox::RestrictPrlimit(GetPolicyPid());
+     default:
+-      // Default on the content baseline policy.
+-      return BPFBasePolicy::EvaluateSyscall(sysno);
++      break;
+   }
++  auto* cmd_line = base::CommandLine::ForCurrentProcess();
++  auto* broker_process = SandboxLinux::GetInstance()->broker_process();
++  if (cmd_line->HasSwitch(switches::kMsAllowVideorenderer) &&
++      broker_process->IsSyscallAllowed(sysno)) {
++    return Trap(BrokerProcess::SIGSYS_Handler, broker_process);
++  }
++
++  // Default on the content baseline policy.
++  return BPFBasePolicy::EvaluateSyscall(sysno);
+ }
+ 
+ }  // namespace service_manager
+diff --git a/services/service_manager/sandbox/mac/common.sb b/services/service_manager/sandbox/mac/common.sb
+index e15e9d97c52a15c3847c2a3b05d2868a3554f519..5eb17851c0780475cdc1d575da7c6be86d7cb4ea 100644
+--- a/services/service_manager/sandbox/mac/common.sb
++++ b/services/service_manager/sandbox/mac/common.sb
+@@ -30,6 +30,9 @@
+ (define filter-syscalls "FILTER_SYSCALLS")
+ (define filter-syscalls-debug "FILTER_SYSCALLS_DEBUG")
+ 
++; Microsoft Teams
++(define ms-allow-videorenderer "MS_ALLOW_VIDEORENDERER")
++
+ ; Backwards compatibility for 10.10.
+ (if (not (defined? 'path))
+   (define path literal))
+diff --git a/services/service_manager/sandbox/mac/renderer.sb b/services/service_manager/sandbox/mac/renderer.sb
+index 5071b8ce7ee1f2dbfdd5dac05d35d5c8bb7ca16e..481cb286a1e1bdce4ff5aa15c8a8a312d88a308d 100644
+--- a/services/service_manager/sandbox/mac/renderer.sb
++++ b/services/service_manager/sandbox/mac/renderer.sb
+@@ -76,6 +76,22 @@
+   (ipc-posix-name "apple.shm.notification_center")  ; https://crbug.com/792217
+ )
+ 
++; Microsoft Teams/SlimCore: ChromiumVideoRenderer
++(if (param-true? ms-allow-videorenderer)
++; shm_open() on macOS only supports names of up to 31 characters so keep prefix/suffix short.
++  (allow ipc-posix-shm-read*      (ipc-posix-name-regex #"^msvdrndr-"))
++  (allow ipc-posix-shm-write-data (ipc-posix-name-regex #"^msvdrndr-.*-flags"))
++)
++
++; TODO: remove once Slimcore with new names rolls out sufficiently
++(allow ipc-posix-shm-write-data
++  (ipc-posix-name-regex #"^/shm-.*-flags")
++)
++
++(allow ipc-posix-shm-read*
++  (ipc-posix-name-regex #"^/shm-")
++)
++
+ ; mach IPC
+ (allow mach-lookup
+   (global-name "com.apple.cvmsServ")  ; https://crbug.com/850021
+diff --git a/services/service_manager/sandbox/mac/sandbox_mac.h b/services/service_manager/sandbox/mac/sandbox_mac.h
+index dd2d9e1b1a4f71417bdaa6d59df689a832b90105..d41b42a7f0197a45092485bbe151f170a5b5b6cc 100644
+--- a/services/service_manager/sandbox/mac/sandbox_mac.h
++++ b/services/service_manager/sandbox/mac/sandbox_mac.h
+@@ -59,6 +59,9 @@ class SERVICE_MANAGER_SANDBOX_EXPORT SandboxMac {
+ 
+   static const char* kSandboxBundleVersionPath;
+ 
++  // Microsoft Teams
++  static const char* kSandboxMsAllowVideorenderer;
++
+  private:
+   FRIEND_TEST_ALL_PREFIXES(MacDirAccessSandboxTest, StringEscape);
+   FRIEND_TEST_ALL_PREFIXES(MacDirAccessSandboxTest, RegexEscape);
+diff --git a/services/service_manager/sandbox/mac/sandbox_mac.mm b/services/service_manager/sandbox/mac/sandbox_mac.mm
+index 511d7edb0c260a222f5a793e7b4cfd1de9cbe531..01cb035a8930e178a4a9ce0cab03d8beed462a38 100644
+--- a/services/service_manager/sandbox/mac/sandbox_mac.mm
++++ b/services/service_manager/sandbox/mac/sandbox_mac.mm
+@@ -70,6 +70,9 @@ const char* SandboxMac::kSandboxMacOS1013 = "MACOS_1013";
+ const char* SandboxMac::kSandboxFieldTrialSeverName = "FIELD_TRIAL_SERVER_NAME";
+ const char* SandboxMac::kSandboxBundleVersionPath = "BUNDLE_VERSION_PATH";
+ 
++// Microsoft Teams/SlimCore
++const char* SandboxMac::kSandboxMsAllowVideorenderer = "MS_ALLOW_VIDEORENDERER";
++
+ // Warm up System APIs that empirically need to be accessed before the Sandbox
+ // is turned on.
+ // This method is layed out in blocks, each one containing a separate function
+diff --git a/services/service_manager/sandbox/switches.cc b/services/service_manager/sandbox/switches.cc
+index e635d4e8eedef739a48118ee965eb3c98f1f77ac..839754b8067d5e7debb9e2dd4ff61aad470bc2be 100644
+--- a/services/service_manager/sandbox/switches.cc
++++ b/services/service_manager/sandbox/switches.cc
+@@ -113,6 +113,10 @@ const char kAddXrAppContainerCaps[] = "add-xr-appcontainer-caps";
+ const char kEnableSandboxLogging[] = "enable-sandbox-logging";
+ #endif
+ 
++#if defined(OS_MACOSX) || defined(OS_LINUX)
++const char kMsAllowVideorenderer[] = "ms-allow-videorenderer";
++#endif
++
+ // Flags spied upon from other layers.
+ const char kGpuProcess[] = "gpu-process";
+ const char kNaClBrokerProcess[] = "nacl-broker";
+diff --git a/services/service_manager/sandbox/switches.h b/services/service_manager/sandbox/switches.h
+index 6d66ab6c4f2e67ba3f36a374432cdb5ec231ecea..7e370588db185bcd11c2395c582770b57b05f68b 100644
+--- a/services/service_manager/sandbox/switches.h
++++ b/services/service_manager/sandbox/switches.h
+@@ -68,6 +68,9 @@ SERVICE_MANAGER_SANDBOX_EXPORT extern const char kAddXrAppContainerCaps[];
+ #if defined(OS_MACOSX)
+ SERVICE_MANAGER_SANDBOX_EXPORT extern const char kEnableSandboxLogging[];
+ #endif
++#if defined(OS_MACOSX) || defined(OS_LINUX)
++SERVICE_MANAGER_SANDBOX_EXPORT extern const char kMsAllowVideorenderer[];
++#endif
+ 
+ // Flags spied upon from other layers.
+ SERVICE_MANAGER_SANDBOX_EXPORT extern const char kGpuProcess[];

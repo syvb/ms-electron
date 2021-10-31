@@ -1,0 +1,522 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Milan Burda <miburda@microsoft.com>
+Date: Wed, 10 Oct 2018 18:55:46 +0000
+Subject: feat: add support for PIXEL_FORMAT_NV12 in software frame pipeline
+
+Microsoft patch
+
+diff --git a/cc/raster/raster_buffer_provider.cc b/cc/raster/raster_buffer_provider.cc
+index 52fdc74ac052e2cb0406f66463afe5767ed8a56b..080a6899992188cba1c5bdaeaa74d5edb9a5381c 100644
+--- a/cc/raster/raster_buffer_provider.cc
++++ b/cc/raster/raster_buffer_provider.cc
+@@ -31,6 +31,7 @@ bool IsSupportedPlaybackToMemoryFormat(viz::ResourceFormat format) {
+       return true;
+     case viz::ALPHA_8:
+     case viz::LUMINANCE_8:
++    case viz::LUMINANCE_ALPHA_88:
+     case viz::RGB_565:
+     case viz::ETC1:
+     case viz::RED_8:
+@@ -132,6 +133,7 @@ void RasterBufferProvider::PlaybackToMemory(
+     case viz::ETC1:
+     case viz::ALPHA_8:
+     case viz::LUMINANCE_8:
++    case viz::LUMINANCE_ALPHA_88:
+     case viz::RGB_565:
+     case viz::RED_8:
+     case viz::LUMINANCE_F16:
+diff --git a/components/viz/common/resources/resource_format.h b/components/viz/common/resources/resource_format.h
+index bdb072434c052e7b93bf34d2db24ebf778e73f5b..cca0e3156d633970ea4513b0be9591cce9c5e86a 100644
+--- a/components/viz/common/resources/resource_format.h
++++ b/components/viz/common/resources/resource_format.h
+@@ -15,6 +15,7 @@ enum ResourceFormat {
+   BGRA_8888,
+   ALPHA_8,
+   LUMINANCE_8,
++  LUMINANCE_ALPHA_88,
+   RGB_565,
+   BGR_565,
+   ETC1,
+diff --git a/components/viz/common/resources/resource_format_utils.cc b/components/viz/common/resources/resource_format_utils.cc
+index e9139bed083f337633bd9d68052d015f5b558152..59a97ad71149f6fa9ebe103486f691595da15cf4 100644
+--- a/components/viz/common/resources/resource_format_utils.cc
++++ b/components/viz/common/resources/resource_format_utils.cc
+@@ -56,6 +56,7 @@ SkColorType ResourceFormatToClosestSkColorType(bool gpu_compositing,
+     case RED_8:
+       return kGray_8_SkColorType;
+     case LUMINANCE_F16:
++    case LUMINANCE_ALPHA_88:
+     case R16_EXT:
+     case BGR_565:
+       return kN32_SkColorType;
+@@ -87,6 +88,7 @@ int BitsPerPixel(ResourceFormat format) {
+     case RGBA_4444:
+     case RGB_565:
+     case LUMINANCE_F16:
++    case LUMINANCE_ALPHA_88:
+     case R16_EXT:
+     case BGR_565:
+     case RG_88:
+@@ -111,6 +113,7 @@ bool HasAlpha(ResourceFormat format) {
+     case RGBA_4444:
+     case BGRA_8888:
+     case ALPHA_8:
++    case LUMINANCE_ALPHA_88:
+     case RGBA_F16:
+       return true;
+     case LUMINANCE_8:
+@@ -142,6 +145,7 @@ unsigned int GLDataType(ResourceFormat format) {
+       GL_UNSIGNED_BYTE,                    // BGRA_8888
+       GL_UNSIGNED_BYTE,                    // ALPHA_8
+       GL_UNSIGNED_BYTE,                    // LUMINANCE_8
++      GL_UNSIGNED_BYTE,                    // LUMINANCE_ALPHA_88
+       GL_UNSIGNED_SHORT_5_6_5,             // RGB_565,
+       GL_ZERO,                             // BGR_565
+       GL_UNSIGNED_BYTE,                    // ETC1
+@@ -172,6 +176,7 @@ unsigned int GLDataFormat(ResourceFormat format) {
+       GL_BGRA_EXT,   // BGRA_8888
+       GL_ALPHA,      // ALPHA_8
+       GL_LUMINANCE,  // LUMINANCE_8
++      GL_LUMINANCE_ALPHA, // LUMINANCE_ALPHA_88
+       GL_RGB,        // RGB_565
+       GL_ZERO,       // BGR_565
+       GL_RGB,        // ETC1
+@@ -223,6 +228,7 @@ unsigned int GLCopyTextureInternalFormat(ResourceFormat format) {
+       GL_RGBA,       // BGRA_8888
+       GL_ALPHA,      // ALPHA_8
+       GL_LUMINANCE,  // LUMINANCE_8
++      GL_LUMINANCE_ALPHA, // LUMINANCE_ALPHA_88
+       GL_RGB,        // RGB_565
+       GL_ZERO,       // BGR_565
+       GL_RGB,        // ETC1
+@@ -281,6 +287,7 @@ gfx::BufferFormat BufferFormat(ResourceFormat format) {
+     case ETC1:
+     case ALPHA_8:
+     case LUMINANCE_8:
++    case LUMINANCE_ALPHA_88:
+     case RGB_565:
+     case LUMINANCE_F16:
+       // These types not allowed by IsGpuMemoryBufferFormatSupported(), so
+@@ -308,6 +315,8 @@ unsigned int TextureStorageFormat(ResourceFormat format) {
+       return GL_ALPHA8_EXT;
+     case LUMINANCE_8:
+       return GL_LUMINANCE8_EXT;
++    case LUMINANCE_ALPHA_88:
++      return GL_LUMINANCE8_ALPHA8_EXT;
+     case RGB_565:
+       return GL_RGB565;
+     case RED_8:
+@@ -340,6 +349,7 @@ bool IsGpuMemoryBufferFormatSupported(ResourceFormat format) {
+   switch (format) {
+     case BGRA_8888:
+     case RED_8:
++    case RG_88:
+     case R16_EXT:
+     case RGBA_4444:
+     case RGBA_8888:
+@@ -352,10 +362,10 @@ bool IsGpuMemoryBufferFormatSupported(ResourceFormat format) {
+     case ETC1:
+     case ALPHA_8:
+     case LUMINANCE_8:
++    case LUMINANCE_ALPHA_88:
+     case RGB_565:
+     case LUMINANCE_F16:
+     case BGR_565:
+-    case RG_88:
+     case RGBX_8888:
+     case BGRX_8888:
+     case YVU_420:
+@@ -375,6 +385,7 @@ bool IsBitmapFormatSupported(ResourceFormat format) {
+     case BGRA_8888:
+     case ALPHA_8:
+     case LUMINANCE_8:
++    case LUMINANCE_ALPHA_88:
+     case RGB_565:
+     case ETC1:
+     case RED_8:
+@@ -505,6 +516,8 @@ VkFormat ToVkFormat(ResourceFormat format) {
+       return VK_FORMAT_R8_UNORM;
+     case LUMINANCE_8:
+       return VK_FORMAT_R8_UNORM;
++    case LUMINANCE_ALPHA_88:
++      return VK_FORMAT_R8G8_UNORM;
+     case YVU_420:
+       return VK_FORMAT_G8_B8_R8_3PLANE_420_UNORM;
+     case YUV_420_BIPLANAR:
+@@ -533,6 +546,7 @@ wgpu::TextureFormat ToDawnFormat(ResourceFormat format) {
+     case LUMINANCE_8:
+       return wgpu::TextureFormat::R8Unorm;
+     case RG_88:
++    case LUMINANCE_ALPHA_88:
+       return wgpu::TextureFormat::RG8Unorm;
+     case RGBA_F16:
+       return wgpu::TextureFormat::RGBA16Float;
+diff --git a/components/viz/service/display/gl_renderer.cc b/components/viz/service/display/gl_renderer.cc
+index 2af556050b7fe4ce7404d0c5ce6f2328a1e863fd..698241aaaa64a6b1e24e3438b394c16bf67ba44a 100644
+--- a/components/viz/service/display/gl_renderer.cc
++++ b/components/viz/service/display/gl_renderer.cc
+@@ -364,6 +364,7 @@ GLRenderer::GLRenderer(
+       shared_geometry_quad_(QuadVertexRect()),
+       gl_(output_surface->context_provider()->ContextGL()),
+       context_support_(output_surface->context_provider()->ContextSupport()),
++      capabilities_(output_surface->context_provider()->ContextCapabilities()),
+       texture_deleter_(current_task_runner),
+       copier_(output_surface->context_provider(), &texture_deleter_),
+       sync_queries_(gl_),
+@@ -2430,7 +2431,8 @@ void GLRenderer::DrawYUVVideoQuad(const YUVVideoDrawQuad* quad,
+ 
+   SetUseProgram(
+       ProgramKey::YUVVideo(tex_coord_precision, sampler, alpha_texture_mode,
+-                           uv_texture_mode, tint_gl_composited_content_,
++                           uv_texture_mode, capabilities_.texture_rg,
++                           tint_gl_composited_content_,
+                            ShouldApplyRoundedCorner(quad)),
+       src_color_space, dst_color_space);
+ 
+diff --git a/components/viz/service/display/gl_renderer.h b/components/viz/service/display/gl_renderer.h
+index 94e7a088b397ce7f69a1f3673ae477dc51492fcb..2b8ed7ad33e076fef3135e47fc86d95d0f0822ab 100644
+--- a/components/viz/service/display/gl_renderer.h
++++ b/components/viz/service/display/gl_renderer.h
+@@ -411,6 +411,7 @@ class VIZ_SERVICE_EXPORT GLRenderer : public DirectRenderer {
+ 
+   gpu::gles2::GLES2Interface* gl_;
+   gpu::ContextSupport* context_support_;
++  gpu::Capabilities capabilities_;
+   std::unique_ptr<ContextCacheController::ScopedVisibility> context_visibility_;
+   std::unique_ptr<ContextCacheController::ScopedBusy> context_busy_;
+ 
+diff --git a/components/viz/service/display/program_binding.cc b/components/viz/service/display/program_binding.cc
+index 975d1d018453be249298de6f46771e01b60d82fa..5cf3ddccfcad37e7ddc9b4893b87dc58714c923a 100644
+--- a/components/viz/service/display/program_binding.cc
++++ b/components/viz/service/display/program_binding.cc
+@@ -144,6 +144,7 @@ ProgramKey ProgramKey::YUVVideo(TexCoordPrecision precision,
+                                 SamplerType sampler,
+                                 YUVAlphaTextureMode yuv_alpha_texture_mode,
+                                 UVTextureMode uv_texture_mode,
++                                bool use_texture_rg,
+                                 bool tint_color,
+                                 bool rounded_corner) {
+   ProgramKey result;
+@@ -156,6 +157,7 @@ ProgramKey ProgramKey::YUVVideo(TexCoordPrecision precision,
+   result.uv_texture_mode_ = uv_texture_mode;
+   DCHECK(uv_texture_mode == UV_TEXTURE_MODE_UV ||
+          uv_texture_mode == UV_TEXTURE_MODE_U_V);
++  result.use_texture_rg_ = use_texture_rg;
+   result.has_tint_color_matrix_ = tint_color;
+   result.has_rounded_corner_ = rounded_corner;
+   return result;
+diff --git a/components/viz/service/display/program_binding.h b/components/viz/service/display/program_binding.h
+index bba6169e8ab641026eae77a83d1a887f9a1cb140..4cb6a9af5829316873770e6f9a0e4b1d78e53683 100644
+--- a/components/viz/service/display/program_binding.h
++++ b/components/viz/service/display/program_binding.h
+@@ -112,6 +112,7 @@ class VIZ_SERVICE_EXPORT ProgramKey {
+                              SamplerType sampler,
+                              YUVAlphaTextureMode yuv_alpha_texture_mode,
+                              UVTextureMode uv_texture_mode,
++                             bool use_texture_rg,
+                              bool tint_color,
+                              bool rounded_corner);
+ 
+@@ -146,6 +147,7 @@ class VIZ_SERVICE_EXPORT ProgramKey {
+ 
+   YUVAlphaTextureMode yuv_alpha_texture_mode_ = YUV_NO_ALPHA_TEXTURE;
+   UVTextureMode uv_texture_mode_ = UV_TEXTURE_MODE_NA;
++  bool use_texture_rg_ = false;
+ 
+   ColorConversionMode color_conversion_mode_ = COLOR_CONVERSION_MODE_NONE;
+   const gfx::ColorTransform* color_transform_ = nullptr;
+@@ -434,6 +436,7 @@ class VIZ_SERVICE_EXPORT Program : public ProgramBindingBase {
+     fragment_shader_.has_uniform_alpha_ = true;
+     fragment_shader_.yuv_alpha_texture_mode_ = key.yuv_alpha_texture_mode_;
+     fragment_shader_.uv_texture_mode_ = key.uv_texture_mode_;
++    fragment_shader_.use_texture_rg_ = key.use_texture_rg_;
+   }
+ 
+   void InitializeInternal(ContextProvider* context_provider) {
+diff --git a/components/viz/service/display/shader.cc b/components/viz/service/display/shader.cc
+index dcec81cae5314ca381691d0c32443715a9ae4d77..7e76d227dc5a86b0a1673a490a8f2c9397b4321d 100644
+--- a/components/viz/service/display/shader.cc
++++ b/components/viz/service/display/shader.cc
+@@ -1000,7 +1000,10 @@ std::string FragmentShader::GetShaderSource() const {
+       SRC("texColor.x = TextureLookup(y_texture, ya_clamped).x;");
+       if (uv_texture_mode_ == UV_TEXTURE_MODE_UV) {
+         HDR("uniform SamplerType uv_texture;");
+-        SRC("texColor.yz = TextureLookup(uv_texture, uv_clamped).xy;");
++        if (use_texture_rg_)
++          SRC("texColor.yz = TextureLookup(uv_texture, uv_clamped).xy;");
++        else
++          SRC("texColor.yz = TextureLookup(uv_texture, uv_clamped).xw;");
+       }
+       if (uv_texture_mode_ == UV_TEXTURE_MODE_U_V) {
+         HDR("uniform SamplerType u_texture;");
+diff --git a/components/viz/service/display/shader.h b/components/viz/service/display/shader.h
+index f64ae80494614b0dc8b2ff7ccb8d32730b6e689b..762bd26ce60bb1749e4534db29adbf5a5d271859 100644
+--- a/components/viz/service/display/shader.h
++++ b/components/viz/service/display/shader.h
+@@ -279,6 +279,7 @@ class VIZ_SERVICE_EXPORT FragmentShader {
+   // YUV-only parameters.
+   YUVAlphaTextureMode yuv_alpha_texture_mode_ = YUV_ALPHA_TEXTURE_MODE_NA;
+   UVTextureMode uv_texture_mode_ = UV_TEXTURE_MODE_UV;
++  bool use_texture_rg_ = false;
+ 
+   ColorConversionMode color_conversion_mode_ = COLOR_CONVERSION_MODE_NONE;
+   const gfx::ColorTransform* color_transform_ = nullptr;
+diff --git a/gpu/command_buffer/build_raster_cmd_buffer.py b/gpu/command_buffer/build_raster_cmd_buffer.py
+index 281dd777d062a376f712af87b8c2e4d3ba3986a1..10ef32c04c37479dee21228409847a99420fd534 100755
+--- a/gpu/command_buffer/build_raster_cmd_buffer.py
++++ b/gpu/command_buffer/build_raster_cmd_buffer.py
+@@ -122,6 +122,7 @@ _NAMED_TYPE_INFO = {
+       'viz::ResourceFormat::BGRA_8888',
+       'viz::ResourceFormat::ALPHA_8',
+       'viz::ResourceFormat::LUMINANCE_8',
++      'viz::ResourceFormat::LUMINANCE_ALPHA_88',
+       'viz::ResourceFormat::RGB_565',
+       'viz::ResourceFormat::BGR_565',
+       'viz::ResourceFormat::RED_8',
+diff --git a/gpu/command_buffer/service/external_vk_image_backing.cc b/gpu/command_buffer/service/external_vk_image_backing.cc
+index 5e38edb127051613e2bcad8d518be7ba31bc6a5e..6396dbf95f69598b379a5d7b21fa3ee644815c23 100644
+--- a/gpu/command_buffer/service/external_vk_image_backing.cc
++++ b/gpu/command_buffer/service/external_vk_image_backing.cc
+@@ -60,6 +60,7 @@ static const struct {
+     {GL_BGRA, GL_UNSIGNED_BYTE, 4},                // BGRA_8888
+     {GL_RED, GL_UNSIGNED_BYTE, 1},                 // ALPHA_8
+     {GL_RED, GL_UNSIGNED_BYTE, 1},                 // LUMINANCE_8
++    {GL_RG, GL_UNSIGNED_BYTE, 2},                  // LUMINANCE_ALPHA_88
+     {GL_RGB, GL_UNSIGNED_SHORT_5_6_5, 2},          // RGB_565
+     {GL_BGR, GL_UNSIGNED_SHORT_5_6_5, 2},          // BGR_565
+     {GL_ZERO, GL_ZERO, 0},                         // ETC1
+diff --git a/gpu/command_buffer/service/gl_utils.cc b/gpu/command_buffer/service/gl_utils.cc
+index cfd3e07f46029ef1cfcda12d3dfcff875979e161..7b81821c9d8579a2555387dd398e018192ad7da9 100644
+--- a/gpu/command_buffer/service/gl_utils.cc
++++ b/gpu/command_buffer/service/gl_utils.cc
+@@ -1205,6 +1205,9 @@ bool GetGFXBufferFormat(GLenum internal_format, gfx::BufferFormat* out_format) {
+     case GL_R8_EXT:
+       *out_format = gfx::BufferFormat::R_8;
+       return true;
++    case GL_RG8_EXT:
++      *out_format = gfx::BufferFormat::RG_88;
++      return true;
+     default:
+       return false;
+   }
+diff --git a/gpu/command_buffer/service/shared_image_backing_factory_gl_texture.cc b/gpu/command_buffer/service/shared_image_backing_factory_gl_texture.cc
+index bd4e77afcbd58ce81b5ac7eaec18e3ecbfa2af90..bd65a8421f8670235db8456d30d578d6290103f2 100644
+--- a/gpu/command_buffer/service/shared_image_backing_factory_gl_texture.cc
++++ b/gpu/command_buffer/service/shared_image_backing_factory_gl_texture.cc
+@@ -1099,6 +1099,7 @@ SharedImageBackingFactoryGLTexture::SharedImageBackingFactoryGLTexture(
+       case gfx::BufferFormat::BGRA_8888:
+       case gfx::BufferFormat::RGBA_F16:
+       case gfx::BufferFormat::R_8:
++      case gfx::BufferFormat::RG_88:
+       case gfx::BufferFormat::BGRA_1010102:
+       case gfx::BufferFormat::RGBA_1010102:
+         break;
+diff --git a/gpu/ipc/common/gpu_memory_buffer_support.cc b/gpu/ipc/common/gpu_memory_buffer_support.cc
+index b4a4d5376daada2ca659b05209f6402df303dc83..82b7c015173348c8e7b2601ae734eaed1d9186f0 100644
+--- a/gpu/ipc/common/gpu_memory_buffer_support.cc
++++ b/gpu/ipc/common/gpu_memory_buffer_support.cc
+@@ -81,6 +81,7 @@ bool GpuMemoryBufferSupport::IsNativeGpuMemoryBufferConfigurationSupported(
+              format == gfx::BufferFormat::RGBA_8888 ||
+              format == gfx::BufferFormat::BGRX_8888 ||
+              format == gfx::BufferFormat::R_8 ||
++             format == gfx::BufferFormat::RG_88 ||
+              format == gfx::BufferFormat::RGBA_F16 ||
+              format == gfx::BufferFormat::BGRA_1010102 ||
+              format == gfx::BufferFormat::YUV_420_BIPLANAR;
+diff --git a/media/renderers/video_resource_updater.cc b/media/renderers/video_resource_updater.cc
+index 5667c75131c2a64becab6e4bd259ab3ce72f9228..c7bd6c99f95af1d4b87947f53427572dde4479bb 100644
+--- a/media/renderers/video_resource_updater.cc
++++ b/media/renderers/video_resource_updater.cc
+@@ -690,6 +690,18 @@ viz::ResourceFormat VideoResourceUpdater::YuvResourceFormat(
+   return viz::LUMINANCE_8;
+ }
+ 
++viz::ResourceFormat VideoResourceUpdater::NV12ResourceFormat(
++    size_t plane) const {
++  DCHECK(plane < 2);
++  DCHECK(context_provider_);
++  const auto& caps = context_provider_->ContextCapabilities();
++  if (plane == 0) {
++    return caps.texture_rg ? viz::RED_8 : viz::LUMINANCE_8;
++  } else {
++    return caps.texture_rg ? viz::RG_88 : viz::LUMINANCE_ALPHA_88;
++  }
++}
++
+ VideoResourceUpdater::PlaneResource*
+ VideoResourceUpdater::RecycleOrAllocateResource(
+     const gfx::Size& resource_size,
+@@ -884,6 +896,14 @@ VideoFrameExternalResources VideoResourceUpdater::CreateForHardwarePlanes(
+   return external_resources;
+ }
+ 
++// Returns correct values for media::PIXEL_FORMAT_NV12
++static size_t BitsPerChannel(viz::ResourceFormat format) {
++  if (format == viz::LUMINANCE_ALPHA_88 || format == viz::RG_88) {
++    return 8;
++  }
++  return viz::BitsPerPixel(format);
++}
++
+ VideoFrameExternalResources VideoResourceUpdater::CreateForSoftwarePlanes(
+     scoped_refptr<VideoFrame> video_frame) {
+   TRACE_EVENT0("cc", "VideoResourceUpdater::CreateForSoftwarePlanes");
+@@ -932,6 +952,17 @@ VideoFrameExternalResources VideoResourceUpdater::CreateForSoftwarePlanes(
+     output_color_space = output_color_space.GetAsFullRangeRGB();
+   }
+ 
++  std::vector<viz::ResourceFormat> output_resource_formats(
++      output_plane_count, output_resource_format);
++
++  if (!software_compositor() && !texture_needs_rgb_conversion) {
++    if (input_frame_format == media::PIXEL_FORMAT_NV12) {
++      for (size_t i = 0; i < output_resource_formats.size(); ++i) {
++        output_resource_formats[i] = NV12ResourceFormat(i);
++      }
++    }
++  }
++
+   std::vector<gfx::Size> outplane_plane_sizes;
+   outplane_plane_sizes.reserve(output_plane_count);
+   for (size_t i = 0; i < output_plane_count; ++i) {
+@@ -949,13 +980,14 @@ VideoFrameExternalResources VideoResourceUpdater::CreateForSoftwarePlanes(
+ 
+   // Delete recycled resources that are the wrong format or wrong size.
+   auto can_delete_resource_fn =
+-      [output_resource_format,
++      [&output_resource_formats,
+        &outplane_plane_sizes](const std::unique_ptr<PlaneResource>& resource) {
+         // Resources that are still being used can't be deleted.
+         if (resource->has_refs())
+           return false;
+ 
+-        return resource->resource_format() != output_resource_format ||
++        return !base::Contains(output_resource_formats,
++                               resource->resource_format()) ||
+                !base::Contains(outplane_plane_sizes, resource->resource_size());
+       };
+   base::EraseIf(all_resources_, can_delete_resource_fn);
+@@ -965,7 +997,7 @@ VideoFrameExternalResources VideoResourceUpdater::CreateForSoftwarePlanes(
+   plane_resources.reserve(output_plane_count);
+   for (size_t i = 0; i < output_plane_count; ++i) {
+     plane_resources.push_back(RecycleOrAllocateResource(
+-        outplane_plane_sizes[i], output_resource_format, output_color_space,
++        outplane_plane_sizes[i], output_resource_formats[i], output_color_space,
+         video_frame->unique_id(), i));
+     plane_resources.back()->add_ref();
+   }
+@@ -1103,7 +1135,7 @@ VideoFrameExternalResources VideoResourceUpdater::CreateForSoftwarePlanes(
+ 
+     const viz::ResourceFormat plane_resource_format =
+         plane_resource->resource_format();
+-    DCHECK_EQ(plane_resource_format, yuv_resource_format);
++    DCHECK_EQ(plane_resource_format, output_resource_formats[i]);
+ 
+     // TODO(hubbe): Move upload code to media/.
+     // TODO(reveman): Can use GpuMemoryBuffers here to improve performance.
+@@ -1123,8 +1155,7 @@ VideoFrameExternalResources VideoResourceUpdater::CreateForSoftwarePlanes(
+     const size_t upload_image_stride =
+         cc::MathUtil::CheckedRoundUp<size_t>(bytes_per_row, 4u);
+ 
+-    const size_t resource_bit_depth =
+-        static_cast<size_t>(viz::BitsPerPixel(plane_resource_format));
++    const size_t resource_bit_depth = BitsPerChannel(plane_resource_format);
+ 
+     // Data downshifting is needed if the resource bit depth is not enough.
+     const bool needs_bit_downshifting = bits_per_channel > resource_bit_depth;
+@@ -1176,11 +1207,12 @@ VideoFrameExternalResources VideoResourceUpdater::CreateForSoftwarePlanes(
+         // Make a copy to reconcile stride, size and format being equal.
+         DCHECK(needs_stride_adaptation);
+         DCHECK(plane_resource_format == viz::LUMINANCE_8 ||
+-               plane_resource_format == viz::RED_8);
++               plane_resource_format == viz::LUMINANCE_ALPHA_88 ||
++               plane_resource_format == viz::RED_8 ||
++               plane_resource_format == viz::RG_88);
+         libyuv::CopyPlane(video_frame->data(i), video_stride_bytes,
+                           upload_pixels_.get(), upload_image_stride,
+-                          resource_size_pixels.width(),
+-                          resource_size_pixels.height());
++                          video_frame->row_bytes(i), video_frame->rows(i));
+       }
+ 
+       pixels = upload_pixels_.get();
+@@ -1217,7 +1249,7 @@ VideoFrameExternalResources VideoResourceUpdater::CreateForSoftwarePlanes(
+         sync_token, plane_resource->resource_size(),
+         plane_resource->overlay_candidate());
+     transferable_resource.color_space = output_color_space;
+-    transferable_resource.format = output_resource_format;
++    transferable_resource.format = output_resource_formats[i];
+     external_resources.resources.push_back(std::move(transferable_resource));
+     external_resources.release_callbacks.push_back(base::BindOnce(
+         &VideoResourceUpdater::RecycleResource, weak_ptr_factory_.GetWeakPtr(),
+diff --git a/media/renderers/video_resource_updater.h b/media/renderers/video_resource_updater.h
+index 1f83dd5f5440c50ed83414a3d93f140b20873b39..c66b79432107b1281cac11e5f6f12a6d928b8828 100644
+--- a/media/renderers/video_resource_updater.h
++++ b/media/renderers/video_resource_updater.h
+@@ -127,6 +127,7 @@ class MEDIA_EXPORT VideoResourceUpdater
+       scoped_refptr<VideoFrame> video_frame);
+ 
+   viz::ResourceFormat YuvResourceFormat(int bits_per_channel);
++  viz::ResourceFormat NV12ResourceFormat(size_t plane) const;
+ 
+  private:
+   class PlaneResource;
+diff --git a/ui/gfx/mac/io_surface.cc b/ui/gfx/mac/io_surface.cc
+index 93a9652b71d86441e15b87aafd7a6b1a13f45830..2a787a579ab844326b0361c95c20edfe40a61205 100644
+--- a/ui/gfx/mac/io_surface.cc
++++ b/ui/gfx/mac/io_surface.cc
+@@ -35,6 +35,9 @@ int32_t BytesPerElement(gfx::BufferFormat format, int plane) {
+     case gfx::BufferFormat::R_8:
+       DCHECK_EQ(plane, 0);
+       return 1;
++    case gfx::BufferFormat::RG_88:
++      DCHECK_EQ(plane, 0);
++      return 2;
+     case gfx::BufferFormat::BGRA_8888:
+     case gfx::BufferFormat::BGRX_8888:
+     case gfx::BufferFormat::RGBA_8888:
+@@ -49,7 +52,6 @@ int32_t BytesPerElement(gfx::BufferFormat format, int plane) {
+       DCHECK_LT(static_cast<size_t>(plane), base::size(bytes_per_element));
+       return bytes_per_element[plane];
+     case gfx::BufferFormat::R_16:
+-    case gfx::BufferFormat::RG_88:
+     case gfx::BufferFormat::BGR_565:
+     case gfx::BufferFormat::RGBA_4444:
+     case gfx::BufferFormat::RGBX_8888:
+@@ -68,6 +70,8 @@ int32_t PixelFormat(gfx::BufferFormat format) {
+   switch (format) {
+     case gfx::BufferFormat::R_8:
+       return 'L008';
++    case gfx::BufferFormat::RG_88:
++      return '2C08';
+     case gfx::BufferFormat::BGRA_1010102:
+       return 'l10r';  // little-endian ARGB2101010 full-range ARGB
+     case gfx::BufferFormat::BGRA_8888:
+@@ -79,7 +83,6 @@ int32_t PixelFormat(gfx::BufferFormat format) {
+     case gfx::BufferFormat::YUV_420_BIPLANAR:
+       return '420v';
+     case gfx::BufferFormat::R_16:
+-    case gfx::BufferFormat::RG_88:
+     case gfx::BufferFormat::BGR_565:
+     case gfx::BufferFormat::RGBA_4444:
+     case gfx::BufferFormat::RGBX_8888:
+diff --git a/ui/gl/gl_image_io_surface.mm b/ui/gl/gl_image_io_surface.mm
+index 1e4324ff889ff43bce19ca6d453a0e58e0195b00..85912562207d67ecf075c45fa58aa7ca1dc126c9 100644
+--- a/ui/gl/gl_image_io_surface.mm
++++ b/ui/gl/gl_image_io_surface.mm
+@@ -491,6 +491,7 @@ GLImageIOSurface* GLImageIOSurface::FromGLImage(GLImage* image) {
+ bool GLImageIOSurface::ValidFormat(gfx::BufferFormat format) {
+   switch (format) {
+     case gfx::BufferFormat::R_8:
++    case gfx::BufferFormat::RG_88:
+     case gfx::BufferFormat::BGRA_8888:
+     case gfx::BufferFormat::BGRX_8888:
+     case gfx::BufferFormat::RGBA_8888:
+@@ -499,7 +500,6 @@ bool GLImageIOSurface::ValidFormat(gfx::BufferFormat format) {
+     case gfx::BufferFormat::YUV_420_BIPLANAR:
+       return true;
+     case gfx::BufferFormat::R_16:
+-    case gfx::BufferFormat::RG_88:
+     case gfx::BufferFormat::BGR_565:
+     case gfx::BufferFormat::RGBA_4444:
+     case gfx::BufferFormat::RGBX_8888:

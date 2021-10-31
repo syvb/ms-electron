@@ -1,0 +1,36 @@
+parameters:
+- name: platform
+  type: string
+  values: ['linux', 'mac', 'mas', 'windows']
+- name: runHooks
+  type: boolean
+  default: true
+- name: workingDirectory  # A checkout root.
+  type: string
+
+steps:
+- task: PythonScript@0
+  displayName: Run gclient sync without hooks
+  inputs:
+    scriptSource: filePath
+    scriptPath: ${{ parameters.workingDirectory }}/src/microsoft/scripts/gclient_sync.py
+    arguments: --no-hooks
+    failOnStderr: false  # It's ok.
+    workingDirectory: ${{ parameters.workingDirectory }}
+
+- ${{ if eq(parameters.runHooks, true) }}:
+  # We should make sure we install all Node.js packages from the private registry.
+  - template: use_private_npm_registry.yml
+    parameters:
+      platform: ${{ parameters.platform }}
+      srcDirectory: ${{ parameters.workingDirectory }}/src
+
+  - task: PythonScript@0
+    displayName: Run gclient runhooks
+    inputs:
+      scriptSource: filePath
+      scriptPath: ${{ parameters.workingDirectory }}/src/microsoft/scripts/gclient.py
+      arguments: runhooks
+      # FIXME: There is warning about Python 3 being used. Find out why.
+      failOnStderr: false
+      workingDirectory: ${{ parameters.workingDirectory }}

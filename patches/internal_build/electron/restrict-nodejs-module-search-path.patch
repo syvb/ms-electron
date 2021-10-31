@@ -1,0 +1,95 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Andrey Belenko <anbelen@microsoft.com>
+Date: Tue, 9 Jun 2020 23:46:32 +0200
+Subject: Restrict Node.js module search path to application resources
+ directory
+
+Microsoft patch
+
+diff --git a/lib/common/reset-search-paths.ts b/lib/common/reset-search-paths.ts
+index de2cac114b3bb96b36c0e9afa0bf9177ed582d65..47e8bf8eea08643fd808d34f5ad1575658d5b796 100644
+--- a/lib/common/reset-search-paths.ts
++++ b/lib/common/reset-search-paths.ts
+@@ -1,26 +1,8 @@
+-import * as path from 'path';
+-
+ const Module = require('module');
+ 
+ // Clear Node's global search paths.
+ Module.globalPaths.length = 0;
+ 
+-// Prevent Node from adding paths outside this app to search paths.
+-const resourcesPathWithTrailingSlash = process.resourcesPath + path.sep;
+-const originalNodeModulePaths = Module._nodeModulePaths;
+-Module._nodeModulePaths = function (from: string) {
+-  const paths: string[] = originalNodeModulePaths(from);
+-  const fromPath = path.resolve(from) + path.sep;
+-  // If "from" is outside the app then we do nothing.
+-  if (fromPath.startsWith(resourcesPathWithTrailingSlash)) {
+-    return paths.filter(function (candidate) {
+-      return candidate.startsWith(resourcesPathWithTrailingSlash);
+-    });
+-  } else {
+-    return paths;
+-  }
+-};
+-
+ // Make a fake Electron module that we will insert into the module cache
+ const makeElectronModule = (name: string) => {
+   const electronModule = new Module('electron', null);
+diff --git a/shell/app/node_main.cc b/shell/app/node_main.cc
+index 69444b5c7ca6a9670552fdf541574c949f46f05e..909f1bc63ea26ec3fd13fffc59d227ffaadfccf1 100644
+--- a/shell/app/node_main.cc
++++ b/shell/app/node_main.cc
+@@ -27,6 +27,7 @@
+ #include "shell/browser/javascript_environment.h"
+ #include "shell/browser/node_debugger.h"
+ #include "shell/common/api/electron_bindings.h"
++#include "shell/common/gin_converters/file_path_converter.h"
+ #include "shell/common/gin_helper/dictionary.h"
+ #include "shell/common/node_bindings.h"
+ #include "shell/common/node_includes.h"
+@@ -237,6 +238,8 @@ int NodeMain(int argc, char* argv[]) {
+ 
+       process.Set("crashReporter", reporter);
+ 
++      process.Set("resourcesPath", GetResourcesPath());
++
+       gin_helper::Dictionary versions;
+       if (process.Get("versions", &versions)) {
+         versions.SetReadOnly(ELECTRON_PROJECT_NAME, ELECTRON_VERSION_STRING);
+diff --git a/shell/common/node_bindings.cc b/shell/common/node_bindings.cc
+index 454594857a2dc0a792f0220dec98ad2deb8efc14..10b20f68326239078c870237590601fd78c389ba 100644
+--- a/shell/common/node_bindings.cc
++++ b/shell/common/node_bindings.cc
+@@ -276,6 +276,8 @@ std::unique_ptr<const char* []> StringVectorToArgArray(
+   return array;
+ }
+ 
++}  // namespace
++
+ base::FilePath GetResourcesPath() {
+ #if defined(OS_MACOSX)
+   return MainApplicationBundlePath().Append("Contents").Append("Resources");
+@@ -288,8 +290,6 @@ base::FilePath GetResourcesPath() {
+ #endif
+ }
+ 
+-}  // namespace
+-
+ NodeBindings::NodeBindings(BrowserEnvironment browser_env)
+     : browser_env_(browser_env), weak_factory_(this) {
+   if (browser_env == BrowserEnvironment::WORKER) {
+diff --git a/shell/common/node_bindings.h b/shell/common/node_bindings.h
+index eba92bda3da4e8e19430ccf7974c59fec99988dc..0a0145258dbe69baa86b0d8ffa0a94b95d5e9b07 100644
+--- a/shell/common/node_bindings.h
++++ b/shell/common/node_bindings.h
+@@ -74,6 +74,8 @@ class UvHandle {
+   T* t_ = {};
+ };
+ 
++base::FilePath GetResourcesPath();
++
+ class NodeBindings {
+  public:
+   enum class BrowserEnvironment { BROWSER, RENDERER, WORKER };

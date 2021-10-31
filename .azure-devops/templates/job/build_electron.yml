@@ -1,0 +1,127 @@
+# A cross-platform Electron build.
+
+parameters:
+- name: arch
+  type: string
+  values: ['arm', 'arm64', 'x64', 'x86']
+- name: asan
+  type: boolean
+  default: false
+- name: buildType
+  type: string
+  values: ['testing', 'release']
+- name: flavour
+  type: string
+  values: ['electron', 'media', 'teams', 'vscode']
+- name: platform
+  type: string
+  values: ['linux', 'mac', 'mas', 'windows']
+- name: useCompilerCache
+  type: boolean
+  default: false
+- name: _buildDirectory
+  type: string
+  default: default
+- name: _workingDirectory
+  type: string
+  default: $(Build.BinariesDirectory)
+
+jobs:
+- template: ../executor/builder.yml
+  parameters:
+    jobId: build_electron_${{ parameters.platform }}_${{ parameters.arch }}
+    displayName: Electron ${{ parameters.platform }} ${{ parameters.arch }}
+    platform: ${{ parameters.platform }}
+    timeoutInMinutes: 240
+    steps:
+    - template: ../action/checkout_electron.yml
+      parameters:
+        gitCacheDirectory: $(Electron.Executor.GitCacheDirectory)
+        platform: ${{ parameters.platform }}
+        workingDirectory: ${{ parameters._workingDirectory }}
+
+    - ${{ if eq(parameters.useCompilerCache, true) }}:
+      - template: ../action/set_variable.yml
+        parameters:
+          name: Electron.Local.SccacheBinaryPath
+          ${{ if in(parameters.platform, 'linux', 'mac', 'mas') }}:
+            value: ${{ parameters._workingDirectory }}/src/electron/external_binaries/sccache
+          ${{ if eq(parameters.platform, 'windows') }}:
+            value: ${{ parameters._workingDirectory }}/src/electron/external_binaries/sccache.exe
+
+    - template: ../action/gn_gen.yml
+      parameters:
+        arch: ${{ parameters.arch }}
+        # TODO(alexeykuzmin): Make sccache work on Windows.
+        ${{ if and(eq(parameters.useCompilerCache, true), ne(parameters.platform, 'windows')) }}:
+          args: cc_wrapper="\"$(Electron.Local.SccacheBinaryPath)\""
+        asan: ${{ parameters.asan }}
+        buildDirectory: out/${{ parameters._buildDirectory }}
+        buildType: ${{ parameters.buildType }}
+        flavour: ${{ parameters.flavour }}
+        ${{ if eq(parameters.platform, 'mas') }}:
+          mas: true
+        srcDirectory: ${{ parameters._workingDirectory }}/src
+
+    - template: ../action/ninja.yml
+      parameters:
+        buildDirectory: ${{ parameters._workingDirectory }}/src/out/${{ parameters._buildDirectory }}
+        displayName: Build an Electron binary
+        failuresLimit: 10  # Let's provide more feedback to a developer.
+        target: electron
+
+    - ${{ if eq(parameters.useCompilerCache, true) }}:
+      - script: $(Electron.Local.SccacheBinaryPath) --show-stats
+        condition: true
+        displayName: Show sccache stats
+
+    - ${{ if and(eq(parameters.platform, 'linux'), eq(parameters.buildType, 'release')) }}:
+      # (alkuzmin): Stripping has to be done before we create an Electron archive.
+      # Otherwise it will be too huge.
+      - template: ../action/strip_linux_binary.yml
+        parameters:
+          arch: ${{ parameters.arch }}
+          directory: out/${{ parameters._buildDirectory }}
+          srcDirectory: ${{ parameters._workingDirectory }}/src
+
+    - template: ../action/ninja.yml
+      parameters:
+        buildDirectory: ${{ parameters._workingDirectory }}/src/out/${{ parameters._buildDirectory }}
+        displayName: Build an Electron archive
+        target: electron:electron_dist_zip
+
+    - template: ../action/copy_artifact.yml
+      parameters:
+        file: dist.zip
+        sourceFolder: ${{ parameters._workingDirectory }}/src/out/${{ parameters._buildDirectory }}
+
+    - ${{ if eq(parameters.platform, 'windows') }}:
+      # We will need the library to build native Node.js modules to run JavaScript tests on Windows.
+      - template: ../action/copy_artifact.yml
+        parameters:
+          file: electron.lib
+          sourceFolder: ${{ parameters._workingDirectory }}/src/out/${{ parameters._buildDirectory }}
+
+    - template: ../action/write_to_file.yml
+      parameters:
+        displayName: Write build flavour to a file in the artifacts staging directory
+        filePath: $(Build.ArtifactStagingDirectory)/flavour.txt
+        text: ${{ parameters.flavour }}
+
+    - template: ../action/build_typescript_definitions.yml
+      parameters:
+        srcDirectory: ${{ parameters._workingDirectory }}/src
+
+    - template: ../action/build_node_headers.yml
+      parameters:
+        buildDirectory: ${{ parameters._workingDirectory }}/src/out/${{ parameters._buildDirectory}}
+
+    - template: ../action/build_spec_modules.yml
+      parameters:
+        arch: ${{ parameters.arch }}
+        buildDirectory: ${{ parameters._buildDirectory }}
+        platform: ${{ parameters.platform }}
+        srcDirectory: ${{ parameters._workingDirectory }}/src
+
+    - publish: $(Build.ArtifactStagingDirectory)
+      artifact: 'electron ${{ parameters.platform }} ${{ parameters.arch }}'

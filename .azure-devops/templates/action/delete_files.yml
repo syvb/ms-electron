@@ -1,0 +1,19 @@
+# Delete files and directories.
+
+parameters:
+  displayName: Delete files
+  directories: ''  # Whitespace-separated list of directory paths.
+  files: ''  # Whitespace-separated list of file paths.
+  rootDirectory: ''  # An absolute path.
+
+steps:
+- task: PythonScript@0
+  displayName: ${{ parameters.displayName }}
+  inputs:
+    scriptSource: filePath
+    scriptPath: scripts/delete_files.py
+    arguments: >
+      --root-dir ${{ parameters.rootDirectory }}
+      --file ${{ parameters.files }}
+      --directory ${{ parameters.directories }}
+    failOnStderr: true

@@ -1,0 +1,25 @@
+parameters:
+  platform: ''  # {'linux', 'mac', 'mas', 'windows'}
+  usePython: 2  # {false, 2, 3}
+  useXcode: true
+
+steps:
+- template: configure_git.yml
+  parameters:
+    platform: ${{ parameters.platform }}
+
+- template: use_nodejs_version.yml
+
+- ${{ if ne(parameters.usePython, false) }}:
+  - template: use_python_version.yml
+    parameters:
+      majorVersion: ${{ parameters.usePython }}
+
+- ${{ if and(in(parameters.platform, 'mac', 'mas'), eq(parameters.useXcode, true)) }}:
+  - template: use_xcode_version.yml
+
+- template: clean_up_build_directories.yml
+  parameters:
+    platform: ${{ parameters.platform }}
+
+- template: skip_component_governance_detection.yml
